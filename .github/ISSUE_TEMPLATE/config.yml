@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: MISO real-time market displays
+    url: https://www.misoenergy.org/markets-and-operations/real-time--market-data/markets-displays/
+    about: Check whether MISO's own displays show the same data before reporting a data issue.

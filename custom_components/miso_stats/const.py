@@ -1,0 +1,91 @@
+"""Constants for MISO Stats."""
+
+from __future__ import annotations
+
+from datetime import timedelta, timezone
+import logging
+
+DOMAIN = "miso_stats"
+LOGGER = logging.getLogger(__package__)
+
+API_BASE = "https://public-api.misoenergy.org/api"
+FUEL_MIX_URL = f"{API_BASE}/FuelMix"
+FUEL_MIX_YESTERDAY_URL = f"{API_BASE}/FuelMix/Yesterday"
+LOAD_URL = f"{API_BASE}/RealTimeTotalLoad"
+LMP_URL = f"{API_BASE}/MarketPricing/GetExAnteLmp"
+DISPLAYS_URL = "https://www.misoenergy.org/markets-and-operations/real-time--market-data/markets-displays/"
+
+ATTRIBUTION = "Data from MISO's public real-time data APIs (unofficial, not affiliated with MISO)"
+# MISO runs on Eastern Standard Time all year (no daylight saving): "10:30 EST" is 15:30 UTC.
+MISO_TZ = timezone(timedelta(hours=-5), "EST")
+REQUEST_TIMEOUT = 30  # seconds
+# Demand and price feeds that fail keep their last values this long before going unavailable.
+STALE_AFTER = timedelta(minutes=30)
+
+# Fuel categories as MISO's FuelMix feed names them, mapped to entity keys.
+FUEL_KEYS = {
+    "Coal": "coal",
+    "Natural Gas": "natural_gas",
+    "Nuclear": "nuclear",
+    "Wind": "wind",
+    "Solar": "solar",
+    "Battery Storage": "battery_storage",
+    "Other": "other",
+    "Imports": "imports",
+}
+# Fuels behind the CO2 estimate and the shares. Other (mixed hydro, oil, biomass...),
+# Imports (unknown origin) and Battery Storage (re-dispatched energy) are left out.
+INTENSITY_FUELS = ("coal", "natural_gas", "nuclear", "wind", "solar")
+CARBON_FREE_FUELS = ("nuclear", "wind", "solar")
+RENEWABLE_FUELS = ("wind", "solar")
+
+# Hub pricing nodes in MISO's ex-ante LMP feed, keyed by option value.
+HUBS = {
+    "arkansas": "ARKANSAS.HUB",
+    "illinois": "ILLINOIS.HUB",
+    "indiana": "INDIANA.HUB",
+    "louisiana": "LOUISIANA.HUB",
+    "michigan": "MICHIGAN.HUB",
+    "minnesota": "MINN.HUB",
+    "mississippi": "MS.HUB",
+    "texas": "TEXAS.HUB",
+    "swpp": "SWPP",
+}
+
+# Options
+CONF_SCAN_INTERVAL = "scan_interval"  # minutes
+CONF_HUB = "hub"
+CONF_COAL_FACTOR = "coal_emission_factor"  # g CO2/kWh
+CONF_GAS_FACTOR = "gas_emission_factor"  # g CO2/kWh
+CONF_LOW_CARBON_INDEX = "low_carbon_index_threshold"  # carbon intensity index, 0-100
+CONF_INDEX_DAYS = "index_days"  # days of history behind the carbon intensity index
+
+DEFAULT_SCAN_INTERVAL = 15
+MIN_SCAN_INTERVAL = 5
+MAX_SCAN_INTERVAL = 60
+DEFAULT_HUB = "indiana"
+DEFAULT_COAL_FACTOR = 1000
+DEFAULT_GAS_FACTOR = 400
+MAX_EMISSION_FACTOR = 2000
+DEFAULT_LOW_CARBON_INDEX = 25
+DEFAULT_INDEX_DAYS = 14
+MIN_INDEX_DAYS = 7
+MAX_INDEX_DAYS = 30
+INDEX_MIN_HISTORY_DAYS = 2  # the index stays unavailable until this many days are stored
+HISTORY_READY_MINUTE = 20  # FuelMix/Yesterday rolls over at midnight EST; ask from 00:20 EST
+HISTORY_RETRY_HOURS = 1  # wait this long before asking again after a failed or stale download
+HISTORY_MIN_HOURS = 20  # a stored day needs at least this many complete hours
+
+DEFAULT_OPTIONS = {
+    CONF_SCAN_INTERVAL: DEFAULT_SCAN_INTERVAL,
+    CONF_HUB: DEFAULT_HUB,
+    CONF_COAL_FACTOR: DEFAULT_COAL_FACTOR,
+    CONF_GAS_FACTOR: DEFAULT_GAS_FACTOR,
+    CONF_LOW_CARBON_INDEX: DEFAULT_LOW_CARBON_INDEX,
+    CONF_INDEX_DAYS: DEFAULT_INDEX_DAYS,
+}
+
+
+def scan_interval(minutes: int) -> timedelta:
+    """Clamp the configured interval to the supported range."""
+    return timedelta(minutes=max(MIN_SCAN_INTERVAL, min(MAX_SCAN_INTERVAL, int(minutes))))

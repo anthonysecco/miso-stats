@@ -1,0 +1,32 @@
+{
+  "entity": {
+    "binary_sensor": {
+      "clean_energy_now": {
+        "default": "mdi:leaf-off",
+        "state": { "on": "mdi:leaf" }
+      }
+    },
+    "sensor": {
+      "co2_intensity": { "default": "mdi:molecule-co2" },
+      "co2_intensity_index": { "default": "mdi:gauge" },
+      "renewables": { "default": "mdi:leaf" },
+      "carbon_free": { "default": "mdi:leaf-circle" },
+      "co2_emissions": { "default": "mdi:molecule-co2" },
+      "demand": { "default": "mdi:home-lightning-bolt" },
+      "todays_peak_demand": { "default": "mdi:arrow-collapse-up" },
+      "forecast_peak_demand_today": { "default": "mdi:chart-timeline-variant-shimmer" },
+      "load_forecast": { "default": "mdi:chart-timeline-variant" },
+      "hub_price": { "default": "mdi:cash" },
+      "generation": { "default": "mdi:transmission-tower" },
+      "coal": { "default": "mdi:factory" },
+      "natural_gas": { "default": "mdi:fire" },
+      "nuclear": { "default": "mdi:atom" },
+      "wind": { "default": "mdi:wind-turbine" },
+      "solar": { "default": "mdi:solar-power-variant" },
+      "battery_storage": { "default": "mdi:home-battery" },
+      "other": { "default": "mdi:help-circle-outline" },
+      "imports": { "default": "mdi:transmission-tower-import" },
+      "data_time": { "default": "mdi:update" }
+    }
+  }
+}
