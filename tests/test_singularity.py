@@ -9,6 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 import pytest
 
+from custom_components.miso_stats.areas import LBA_CODES, lba_code
 from custom_components.miso_stats.const import SINGULARITY_API
 from custom_components.miso_stats.singularity import (
     Location,
@@ -23,6 +24,7 @@ from custom_components.miso_stats.singularity import (
     parse_lmf,
     parse_location,
     parse_nodes,
+    suggest_node,
 )
 
 from .conftest import TEST_API_KEY, TEST_NODE, load_fixture, register_singularity, singularity_calls
@@ -38,7 +40,7 @@ def test_parse_location_and_area_ids() -> None:
     assert location.agg_id("state") == "Michigan"
     assert location.agg_id("county") == "Wayne (Michigan)"
     assert location.agg_id("lrz") == "7"
-    assert location.agg_id("lba") == "Detroit Edison Company"
+    assert location.agg_id("lba") == "DECO"  # the lookup gives the name; queries take the code
     assert location.agg_id("subregion") == "CENTRAL"
     assert location.agg_id("miso") is None
     assert Location.from_dict(location.as_dict()) == location
@@ -150,3 +152,29 @@ async def test_client_location_not_found(hass: HomeAssistant, aioclient_mock) ->
     client = SingularityClient(async_get_clientsession(hass), TEST_API_KEY)
     with pytest.raises(SingularityNoAreaError):
         await client.location(21.3, -157.8)
+
+
+def test_lba_codes() -> None:
+    assert len(LBA_CODES) >= 43
+    assert lba_code("Detroit Edison Company") == "DECO"
+    assert lba_code("detroit edison company") == "DECO"
+    assert lba_code("Consumers Energy - METC") == "CONS"
+    assert lba_code("DECO") == "DECO"
+    assert lba_code("Some New Utility") == "Some New Utility"  # unknown names pass through
+    assert lba_code(None) is None
+
+
+def test_suggest_node() -> None:
+    assert suggest_node(["CONS.X", "DECO.DECO", "DECO.MONROE1"], "Detroit Edison Company") == "DECO.DECO"
+    assert suggest_node(["DECO.MONROE1", "DECO.LZ"], "DECO") == "DECO.LZ"
+    assert suggest_node(["DECO.MONROE1", "DECO.BELLERIVER"], "DECO") is None  # no obvious load zone
+    assert suggest_node(["AECI.ALTW"], "Detroit Edison Company") is None
+    assert suggest_node(["DECO.DECO"], None) is None
+
+
+async def test_client_node_list_empty_reports_response(hass: HomeAssistant, aioclient_mock) -> None:
+    aioclient_mock.get(f"{SINGULARITY_API}/events/lme/by-timestamp", text='{"data": []}')
+    client = SingularityClient(async_get_clientsession(hass), TEST_API_KEY)
+    with pytest.raises(SingularityError, match=r'last response: \{"data": \[\]\}'):
+        await client.nodes(NOW)
+    assert len(singularity_calls(aioclient_mock, "/events/lme/by-timestamp")) == 6

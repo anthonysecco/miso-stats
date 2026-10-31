@@ -10,7 +10,7 @@
       },
       "singularity": {
         "title": "Local and marginal emissions",
-        "description": "Your home is in {county} County, {state}: local resource zone {lrz}, balancing area {lba}, {subregion} subregion.\n\nWith a key, CO2 intensity, the carbon-free and renewable shares and the Carbon Intensity Index all come from the Emissions API for the **local area** you choose here.\n\nFor **Marginal CO2 intensity**, optionally pick a MISO commercial pricing node near you: {node_count} nodes are listed (type to search; names look like AECI.ALTW). The Marginal map at miso.singularity.energy/marginal shows them by location.",
+        "description": "Your home is in {county} County, {state}: local resource zone {lrz}, balancing area {lba} ({lba_code}), {subregion} subregion.\n\nWith a key, CO2 intensity, the carbon-free and renewable shares and the Carbon Intensity Index all come from the Emissions API for the **local area** you choose here.\n\nFor **Marginal CO2 intensity**, optionally pick a MISO commercial pricing node near you: {node_count} nodes are listed. Names start with the balancing-area code, so type {lba_code} to see the ones in your area. The Marginal map at miso.singularity.energy/marginal shows them by location.",
         "data": {
           "local_level": "Local area",
           "cp_node": "Pricing node (optional)"
@@ -57,7 +57,7 @@
       },
       "singularity": {
         "title": "Local and marginal emissions",
-        "description": "Your home is in {county} County, {state}: local resource zone {lrz}, balancing area {lba}, {subregion} subregion.\n\nWith a key, CO2 intensity, the carbon-free and renewable shares and the Carbon Intensity Index all come from the Emissions API for the **local area** you choose here.\n\nFor **Marginal CO2 intensity**, optionally pick a MISO commercial pricing node near you: {node_count} nodes are listed (type to search; names look like AECI.ALTW). The Marginal map at miso.singularity.energy/marginal shows them by location.",
+        "description": "Your home is in {county} County, {state}: local resource zone {lrz}, balancing area {lba} ({lba_code}), {subregion} subregion.\n\nWith a key, CO2 intensity, the carbon-free and renewable shares and the Carbon Intensity Index all come from the Emissions API for the **local area** you choose here.\n\nFor **Marginal CO2 intensity**, optionally pick a MISO commercial pricing node near you: {node_count} nodes are listed. Names start with the balancing-area code, so type {lba_code} to see the ones in your area. The Marginal map at miso.singularity.energy/marginal shows them by location.",
         "data": {
           "local_level": "Local area",
           "cp_node": "Pricing node (optional)"

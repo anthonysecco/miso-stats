@@ -54,6 +54,7 @@ from .singularity import (
     SingularityNoAreaError,
     marginal_from,
     parse_consumed,
+    suggest_node,
 )
 
 SINGULARITY_KEYS = (CONF_API_KEY, CONF_LOCAL_LEVEL, CONF_CP_NODE, CONF_LOCATION)
@@ -94,6 +95,7 @@ def _location_placeholders(location: Location, nodes: list[str]) -> dict[str, st
         "state": location.state or "?",
         "lrz": str(location.lrz) if location.lrz is not None else "?",
         "lba": location.lba or "?",
+        "lba_code": location.agg_id("lba") or "?",
         "subregion": location.subregion or "?",
         "account_url": SINGULARITY_ACCOUNT_URL,
     }
@@ -132,14 +134,13 @@ class SingularitySetup:
         except SingularityError as err:  # the list only fills the picker; typing a name still works
             LOGGER.warning("Could not load the pricing node list (a name can still be typed): %s", err)
             self.nodes = []
-        else:
-            if not self.nodes:
-                LOGGER.warning("The Emissions API listed no pricing nodes for recent intervals")
         return None
 
     def schema(self, current: dict[str, Any]) -> vol.Schema:
-        """Area level and (optional) pricing node."""
+        """Area level and (optional) pricing node, preselecting the home LBA's load-zone node when obvious."""
         node = str(current.get(CONF_CP_NODE) or "")
+        if not node and self.location is not None:
+            node = suggest_node(self.nodes, self.location.lba) or ""
         return vol.Schema(
             {
                 vol.Required(

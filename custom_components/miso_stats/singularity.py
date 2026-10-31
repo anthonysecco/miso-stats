@@ -24,6 +24,7 @@ from typing import Any
 import aiohttp
 
 from .api import USER_AGENT, _number
+from .areas import lba_code
 from .const import REQUEST_TIMEOUT, SINGULARITY_API
 
 G_PER_KWH_PER_LB_PER_MWH = 0.45359237  # 1 lb/MWh = 453.59237 g / 1000 kWh
@@ -100,7 +101,7 @@ class Location:
             case "lrz":
                 return str(self.lrz) if self.lrz is not None else None
             case "lba":
-                return self.lba
+                return lba_code(self.lba)  # the lookup gives "Detroit Edison Company"; queries want "DECO"
             case "state":
                 return self.state
             case "subregion":
@@ -321,15 +322,45 @@ class SingularityClient:
         return lme, lmf
 
     async def nodes(self, now: datetime) -> list[str]:
-        """Commercial pricing node names, from a recent interval's LME for all nodes."""
+        """Commercial pricing node names, from a recent interval's LME for all nodes.
+
+        Tries intervals further back until one has data; raises with a sample of the last
+        response when none does, so the reason shows up in the log.
+        """
         interval = now.astimezone(UTC).replace(second=0, microsecond=0)
         interval -= timedelta(minutes=interval.minute % 5)
-        for back in (15, 30, 60):
-            params = {"timestamp": _utc(interval - timedelta(minutes=back)), "units": "us"}
-            names = parse_nodes(await self._get("/events/lme/by-timestamp", params))
-            if names:
+        text = ""
+        tried = []
+        for back in NODE_LIST_LOOKBACKS:
+            stamp = _utc(interval - timedelta(minutes=back))
+            tried.append(stamp)
+            text = await self._get("/events/lme/by-timestamp", {"timestamp": stamp, "units": "us"})
+            if names := parse_nodes(text):
                 return names
-        return []
+        raise SingularityError(f"no pricing nodes for intervals {', '.join(tried)}; last response: {text[:300]}")
+
+
+NODE_LIST_LOOKBACKS = (15, 30, 60, 180, 720, 1440)  # minutes before the current 5-minute interval
+
+
+def suggest_node(nodes: list[str], lba: str | None) -> str | None:
+    """A pricing node in the home's LBA to preselect: its load-zone-like node when one is obvious.
+
+    Node names start with the LBA code ("DECO.NODE"). Prefers "<code>.<code>", then a name
+    marking a load zone; otherwise suggests nothing rather than an arbitrary plant's node.
+    """
+    code = lba_code(lba)
+    if not code:
+        return None
+    mine = [n for n in nodes if n.upper().startswith(f"{code.upper()}.")]
+    for name in mine:
+        if name.upper() == f"{code.upper()}.{code.upper()}":
+            return name
+    for marker in (".LZ", "LOADZONE", "LOAD_ZONE", ".LOAD", "_LZ"):
+        for name in mine:
+            if marker in name.upper():
+                return name
+    return None
 
 
 def marginal_from(lme_text: str, lmf_text: str, cp_node: str) -> Marginal | None:
