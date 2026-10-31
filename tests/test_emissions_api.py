@@ -25,9 +25,6 @@ from .conftest import (
     singularity_calls,
 )
 
-KEY_ONLY_ENTITIES = {"sensor.miso_co2_intensity_estimate"}
-
-
 async def _setup(hass: HomeAssistant, **options: Any) -> MockConfigEntry:
     entry = MockConfigEntry(domain=DOMAIN, title="MISO", data={}, options={**DEFAULT_OPTIONS, **options})
     entry.add_to_hass(hass)
@@ -56,11 +53,11 @@ def _synthetic_hours() -> str:
 
 async def test_no_key_uses_miso_estimates(hass: HomeAssistant, mock_miso) -> None:
     entry = await _setup(hass)
-    entity_ids = {e.entity_id for e in er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)}
-    assert not entity_ids & KEY_ONLY_ENTITIES
+    assert len(er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)) == 20
     intensity = hass.states.get("sensor.miso_co2_intensity")
     assert float(intensity.state) == 446.0
     assert intensity.attributes["source"] == "miso" and intensity.attributes["estimated"] is True
+    assert "miso_wide" not in intensity.attributes
     assert not [c for c in mock_miso.mock_calls if "singularity" in str(c[1])]
 
 
@@ -75,6 +72,7 @@ async def test_key_makes_carbon_numbers_local(hass: HomeAssistant, mock_singular
     assert intensity.attributes["area_level"] == "state" and intensity.attributes["area"] == "Michigan"
     assert intensity.attributes["hour"] == "2026-10-31T15:00:00+00:00"
     assert intensity.attributes["fossil_rate"] == 624.0
+    assert intensity.attributes["miso_wide"] == 446.0  # the MISO-wide estimate, for comparison
 
     carbon_free = hass.states.get("sensor.miso_carbon_free")
     assert float(carbon_free.state) == 35.0  # non_cfe_percentage 0.65 is a fraction
@@ -84,12 +82,8 @@ async def test_key_makes_carbon_numbers_local(hass: HomeAssistant, mock_singular
     assert float(renewables.state) == 13.1  # wind 2.0 + solar 9.0 + hydro 0.8 + biomass 1.3
     assert renewables.attributes["miso_wide"] == 20.2
 
-    # The MISO-wide estimate stays available for comparison.
-    estimate = hass.states.get("sensor.miso_co2_intensity_estimate")
-    assert float(estimate.state) == 446.0
-    assert estimate.attributes["friendly_name"] == "MISO CO2 intensity estimate"
-
-    # Demand still comes from MISO.
+    # Same 20 entities as without a key; demand still comes from MISO.
+    assert len(er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)) == 20
     assert float(hass.states.get("sensor.miso_demand").state) == 72619
 
 
@@ -135,13 +129,12 @@ async def test_consumed_fetched_hourly(hass: HomeAssistant, mock_singularity, fr
 
 
 async def test_rejected_key_raises_repair(hass: HomeAssistant, mock_miso, freezer) -> None:
-    """HTTP 401: the carbon sensors go unavailable, the MISO estimate and demand keep working, Repairs explains."""
+    """HTTP 401: the carbon sensors go unavailable, demand keeps working, Repairs explains."""
     freezer.move_to(FIXTURE_NOW_ISO)
     register_singularity(mock_miso, status=401)
     entry = await _setup(hass, **SINGULARITY_OPTIONS)
     assert entry.state is ConfigEntryState.LOADED
     assert hass.states.get("sensor.miso_co2_intensity").state == STATE_UNAVAILABLE
-    assert float(hass.states.get("sensor.miso_co2_intensity_estimate").state) == 446.0
     assert float(hass.states.get("sensor.miso_demand").state) == 72619
     assert ir.async_get(hass).async_get_issue(DOMAIN, "invalid_api_key") is not None
     assert "HTTP 401" in entry.runtime_data.data.errors["singularity"]
@@ -165,23 +158,20 @@ async def test_forbidden_request_is_not_a_bad_key(hass: HomeAssistant, mock_miso
     assert "HTTP 403" in entry.runtime_data.data.errors["singularity"]
 
 
-async def test_removing_key_removes_entities(hass: HomeAssistant, mock_singularity, freezer) -> None:
+async def test_removing_key_goes_back_to_miso(hass: HomeAssistant, mock_singularity, freezer) -> None:
     freezer.move_to(FIXTURE_NOW_ISO)
     entry = await _setup(hass, **SINGULARITY_OPTIONS)
-    registry = er.async_get(hass)
-    for entity_id in KEY_ONLY_ENTITIES:
-        assert registry.async_get(entity_id) is not None
+    assert hass.states.get("sensor.miso_co2_intensity").attributes["source"] == "singularity"
 
     hass.config_entries.async_update_entry(entry, options=dict(DEFAULT_OPTIONS))
     assert await hass.config_entries.async_reload(entry.entry_id)
     await hass.async_block_till_done(wait_background_tasks=True)
-    for entity_id in KEY_ONLY_ENTITIES:
-        assert registry.async_get(entity_id) is None
-    assert hass.states.get("sensor.miso_co2_intensity").attributes["source"] == "miso"
+    intensity = hass.states.get("sensor.miso_co2_intensity")
+    assert intensity.attributes["source"] == "miso" and float(intensity.state) == 446.0
 
 
 async def test_retired_local_entities_removed(hass: HomeAssistant, mock_singularity, freezer) -> None:
-    """Pre-release builds had separate Local and Marginal sensors; they're retired."""
+    """Pre-release builds had separate Local, Marginal and estimate sensors; they're retired."""
     freezer.move_to(FIXTURE_NOW_ISO)
     entry = MockConfigEntry(domain=DOMAIN, title="MISO", data={}, options={**DEFAULT_OPTIONS, **SINGULARITY_OPTIONS})
     entry.add_to_hass(hass)
@@ -190,7 +180,7 @@ async def test_retired_local_entities_removed(hass: HomeAssistant, mock_singular
         registry.async_get_or_create(
             "sensor", DOMAIN, f"{entry.entry_id}_{key}", config_entry=entry, suggested_object_id=f"miso_{key}"
         )
-        for key in ("local_co2_intensity", "local_carbon_free", "marginal_co2_intensity")
+        for key in ("local_co2_intensity", "local_carbon_free", "marginal_co2_intensity", "co2_intensity_estimate")
     ]
     await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done(wait_background_tasks=True)

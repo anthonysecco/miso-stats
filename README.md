@@ -149,11 +149,10 @@ MISO's [Emissions Dashboard](https://miso.singularity.energy) is built and run f
 
 | Entity | Without a key | With a key |
 |---|---|---|
-| `sensor.miso_co2_intensity` | MISO-wide estimate, every 5 minutes | **Consumed** (location-based) CO2e for your area, from Singularity's tracing of actual power flows, including imports. Hourly, about 90 minutes late. Extra attributes: `area_level`, `area`, `hour`, `fossil_rate`. |
+| `sensor.miso_co2_intensity` | MISO-wide estimate, every 5 minutes | **Consumed** (location-based) CO2e for your area, from Singularity's tracing of actual power flows, including imports. Hourly, about 90 minutes late. Extra attributes: `area_level`, `area`, `hour`, `fossil_rate`, and `miso_wide` (the MISO-wide estimate, for comparison). |
 | `sensor.miso_carbon_free` | MISO-wide (nuclear, wind, solar) | Your area, all carbon-free sources. `fuel_mix` (not recorded) and `miso_wide` attributes. |
 | `sensor.miso_renewables` | MISO-wide (wind, solar) | Your area: wind, solar, hydro and biomass. `miso_wide` attribute. |
 | `sensor.miso_carbon_intensity_index`, `binary_sensor.miso_low_carbon_energy_now` | From MISO's estimate; history builds up one day per night | From your area's hourly history, **back-filled from the API at setup**, so the index works right away. |
-| `sensor.miso_co2_intensity_estimate` | — | The MISO-wide estimate, kept for comparison. |
 
 Demand, the load forecast and the MW per fuel always come from MISO's own feeds.
 

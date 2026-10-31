@@ -96,7 +96,6 @@
       "co2_intensity_index": { "name": "Carbon Intensity Index" },
       "renewables": { "name": "Renewables" },
       "carbon_free": { "name": "Carbon-free" },
-      "co2_intensity_estimate": { "name": "CO2 intensity estimate" },
       "co2_emissions": { "name": "CO2 emissions" },
       "demand": { "name": "Demand" },
       "todays_peak_demand": { "name": "Today's peak demand" },

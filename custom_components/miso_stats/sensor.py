@@ -18,7 +18,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import FUEL_KEYS
-from .coordinator import SOURCE_MISO, SOURCE_SINGULARITY, MisoConfigEntry, MisoCoordinator, MisoData
+from .coordinator import SOURCE_MISO, SOURCE_SINGULARITY, MisoConfigEntry, MisoData
 from .entity import MisoEntity
 
 PARALLEL_UPDATES = 0
@@ -36,7 +36,6 @@ class MisoSensorDescription(SensorEntityDescription):
     value_fn: Callable[[MisoData], StateType]
     attrs_fn: Callable[[MisoData], dict[str, Any]] | None = None
     available_fn: Callable[[MisoData], bool] = lambda _: True
-    exists_fn: Callable[[MisoCoordinator], bool] = lambda _: True  # whether to create the entity at all
 
 
 def _iso(when: datetime | None) -> str | None:
@@ -173,6 +172,7 @@ def _intensity_attrs(d: MisoData) -> dict[str, Any]:
     attrs = _local_area(d)
     if d.local and d.local.non_cfe_rate is not None:
         attrs["fossil_rate"] = round(d.local.non_cfe_rate, 1)
+    attrs["miso_wide"] = d.estimate  # the MISO-wide estimate, for comparison
     return attrs
 
 
@@ -238,17 +238,6 @@ SENSORS: tuple[MisoSensorDescription, ...] = (
         attrs_fn=_share_attrs(lambda d: d.miso_carbon_free),
         available_fn=lambda d: d.carbon_free is not None,
     ),
-    # With a key the headline intensity is local; the MISO-wide estimate stays here for comparison.
-    MisoSensorDescription(
-        key="co2_intensity_estimate",
-        translation_key="co2_intensity_estimate",
-        native_unit_of_measurement=UNIT_CO2_INTENSITY,
-        state_class=SensorStateClass.MEASUREMENT,
-        suggested_display_precision=0,
-        value_fn=lambda d: d.estimate,
-        attrs_fn=_estimate_attrs,
-        exists_fn=lambda c: c.singularity is not None,
-    ),
     MisoSensorDescription(
         key="co2_emissions",
         translation_key="co2_emissions",
@@ -309,9 +298,7 @@ async def async_setup_entry(
 ) -> None:
     """Add the sensors."""
     coordinator = entry.runtime_data
-    async_add_entities(
-        MisoSensor(coordinator, description) for description in SENSORS if description.exists_fn(coordinator)
-    )
+    async_add_entities(MisoSensor(coordinator, description) for description in SENSORS)
 
 
 class MisoSensor(MisoEntity, SensorEntity):

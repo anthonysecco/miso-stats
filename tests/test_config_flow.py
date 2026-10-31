@@ -124,14 +124,14 @@ async def test_options_add_then_remove_api_key(hass: HomeAssistant, mock_singula
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert entry.options["api_key"] == TEST_API_KEY
     assert entry.options["local_level"] == "lrz"
-    assert hass.states.get("sensor.miso_co2_intensity_estimate") is not None
+    assert hass.states.get("sensor.miso_co2_intensity").attributes["source"] == "singularity"
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
     result = await hass.config_entries.options.async_configure(result["flow_id"], dict(DEFAULT_OPTIONS))
     await hass.async_block_till_done(wait_background_tasks=True)
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert entry.options == DEFAULT_OPTIONS  # key, areas and level dropped
-    assert hass.states.get("sensor.miso_co2_intensity_estimate") is None
+    assert hass.states.get("sensor.miso_co2_intensity").attributes["source"] == "miso"
 
 
 async def test_emissions_step_defaults_and_choices(hass: HomeAssistant, mock_singularity) -> None:

@@ -17,18 +17,14 @@ RETIRED_ENTITIES: tuple[tuple[Platform, str], ...] = (
     (Platform.SENSOR, "local_co2_intensity"),  # merged into CO2 intensity when a key is set
     (Platform.SENSOR, "local_carbon_free"),  # merged into Carbon-free when a key is set
     (Platform.SENSOR, "marginal_co2_intensity"),  # the Emissions API serves no marginal data to keys yet
+    (Platform.SENSOR, "co2_intensity_estimate"),  # now the miso_wide attribute of CO2 intensity
 )
-# Entities that exist only with an Emissions API key.
-KEY_ENTITIES = ("co2_intensity_estimate",)
 
 
 def _remove_unused_entities(hass: HomeAssistant, entry: MisoConfigEntry, coordinator: MisoCoordinator) -> None:
-    """Drop retired entities, and the Emissions API ones once the key is removed."""
-    unused = list(RETIRED_ENTITIES)
-    if coordinator.singularity is None:
-        unused += [(Platform.SENSOR, key) for key in KEY_ENTITIES]
+    """Drop retired entities; clear the key's Repairs issue once the key is removed."""
     registry = er.async_get(hass)
-    for platform, key in unused:
+    for platform, key in RETIRED_ENTITIES:
         if entity_id := registry.async_get_entity_id(platform, DOMAIN, f"{entry.entry_id}_{key}"):
             LOGGER.info("Removing unused MISO Stats entity %s", entity_id)
             registry.async_remove(entity_id)
