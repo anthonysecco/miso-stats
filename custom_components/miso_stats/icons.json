@@ -17,7 +17,6 @@
       "forecast_peak_demand_today": { "default": "mdi:chart-timeline-variant-shimmer" },
       "load_forecast": { "default": "mdi:chart-timeline-variant" },
       "co2_intensity_estimate": { "default": "mdi:molecule-co2" },
-      "marginal_co2_intensity": { "default": "mdi:map-marker-plus" },
       "generation": { "default": "mdi:transmission-tower" },
       "coal": { "default": "mdi:factory" },
       "natural_gas": { "default": "mdi:fire" },

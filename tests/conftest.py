@@ -22,14 +22,12 @@ FIXTURE_NOW = datetime(2026, 10, 31, 10, 35, tzinfo=MISO_TZ)
 FIXTURE_NOW_ISO = "2026-10-31 10:35:00-05:00"
 YESTERDAY = date(2026, 10, 30)
 
-# Emissions API (Singularity). The fixtures follow the API docs' examples (the node is the docs'
-# example node); they are not captured responses.
+# Emissions API (Singularity). The consumed fixture is a real Michigan response; the location
+# fixture follows the docs and the real lookup.
 TEST_API_KEY = "test-key-not-real"
-TEST_NODE = "AECI.ALTW"
 SINGULARITY_OPTIONS = {
     "api_key": TEST_API_KEY,
     "local_level": "state",
-    "cp_node": TEST_NODE,
     "location": {
         "county": "Wayne",
         "state": "Michigan",
@@ -41,9 +39,6 @@ SINGULARITY_OPTIONS = {
 SINGULARITY_PATHS = {
     "/data-availability/lookup/coordinates": "singularity_location.json",
     "/events/consumed": "singularity_consumed.json",
-    "/events/lme/by-node": "singularity_lme.json",
-    "/events/lmf/by-node": "singularity_lmf.json",
-    "/events/lme/by-timestamp": "singularity_nodes.json",
 }
 
 

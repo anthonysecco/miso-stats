@@ -4,7 +4,6 @@ Replace the `switch.*`, `climate.*` and `notify.*` entities with your own. Each 
 
 - [EV charging when the grid is clean](#ev-charging-when-the-grid-is-clean)
 - [Water heater boost when the grid is clean](#water-heater-boost-when-the-grid-is-clean)
-- [Charge on low marginal emissions (Emissions API key)](#charge-on-low-marginal-emissions-emissions-api-key)
 - [Ease off near the forecast peak](#ease-off-near-the-forecast-peak)
 - [Nudge to start the dishwasher or laundry](#nudge-to-start-the-dishwasher-or-laundry)
 - [Dashboard cards](#dashboard-cards)
@@ -57,30 +56,6 @@ actions:
   - action: "switch.turn_{{ 'on' if trigger.id == 'clean' else 'off' }}"
     target:
       entity_id: switch.water_heater_boost
-mode: restart
-```
-
-## Charge on low marginal emissions (Emissions API key)
-
-With an [Emissions API key](../README.md#local-and-marginal-emissions-optional) and a pricing node, `sensor.miso_marginal_co2_intensity` shows the emissions your *extra* load causes right now. It's often above 700 g/kWh when gas or coal is on the margin and far lower when wind or solar is. Pick thresholds from a few days of its history.
-
-```yaml
-alias: "EV: charge when marginal emissions are low"
-triggers:
-  - trigger: numeric_state
-    entity_id: sensor.miso_marginal_co2_intensity
-    below: 400
-    for: "00:15:00"
-    id: start
-  - trigger: numeric_state
-    entity_id: sensor.miso_marginal_co2_intensity
-    above: 650
-    for: "00:15:00"
-    id: stop
-actions:
-  - action: "switch.turn_{{ 'on' if trigger.id == 'start' else 'off' }}"
-    target:
-      entity_id: switch.ev_charger
 mode: restart
 ```
 

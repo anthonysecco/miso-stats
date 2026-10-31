@@ -25,7 +25,6 @@ from .api import MisoClient, MisoError, parse_fuel_mix
 from .const import (
     CONF_API_KEY,
     CONF_COAL_FACTOR,
-    CONF_CP_NODE,
     CONF_GAS_FACTOR,
     CONF_INDEX_DAYS,
     CONF_LOCAL_LEVEL,
@@ -52,12 +51,10 @@ from .singularity import (
     SingularityError,
     SingularityForbiddenError,
     SingularityNoAreaError,
-    marginal_from,
     parse_consumed,
-    suggest_node,
 )
 
-SINGULARITY_KEYS = (CONF_API_KEY, CONF_LOCAL_LEVEL, CONF_CP_NODE, CONF_LOCATION)
+SINGULARITY_KEYS = (CONF_API_KEY, CONF_LOCAL_LEVEL, CONF_LOCATION, "cp_node")  # "cp_node": pre-release builds
 
 
 def _number(minimum: float, maximum: float, step: float, unit: str) -> NumberSelector:
@@ -88,9 +85,8 @@ def options_schema(current: dict[str, Any]) -> vol.Schema:
     return vol.Schema(fields)
 
 
-def _location_placeholders(location: Location, nodes: list[str]) -> dict[str, str]:
+def _location_placeholders(location: Location) -> dict[str, str]:
     return {
-        "node_count": str(len(nodes)),
         "county": location.county or "?",
         "state": location.state or "?",
         "lrz": str(location.lrz) if location.lrz is not None else "?",
@@ -102,14 +98,13 @@ def _location_placeholders(location: Location, nodes: list[str]) -> dict[str, st
 
 
 class SingularitySetup:
-    """Shared by the config and options flows: check a key, find the home's areas, then pick level and node."""
+    """Shared by the config and options flows: check a key, find the home's areas, then pick the level."""
 
     def __init__(self, hass: HomeAssistant) -> None:
         """Start without a key."""
         self.hass = hass
         self.api_key: str | None = None
         self.location: Location | None = None
-        self.nodes: list[str] = []
 
     def client(self) -> SingularityClient:
         """A client for the key being set up."""
@@ -129,18 +124,10 @@ class SingularitySetup:
         except SingularityError as err:
             LOGGER.warning("MISO Emissions API check failed: %s", err)
             return "cannot_connect_singularity"
-        try:
-            self.nodes = await self.client().nodes(dt_util.utcnow())
-        except SingularityError as err:  # the list only fills the picker; typing a name still works
-            LOGGER.warning("Could not load the pricing node list (a name can still be typed): %s", err)
-            self.nodes = []
         return None
 
     def schema(self, current: dict[str, Any]) -> vol.Schema:
-        """Area level and (optional) pricing node, preselecting the home LBA's load-zone node when obvious."""
-        node = str(current.get(CONF_CP_NODE) or "")
-        if not node and self.location is not None:
-            node = suggest_node(self.nodes, self.location.lba) or ""
+        """The local area level."""
         return vol.Schema(
             {
                 vol.Required(
@@ -150,46 +137,29 @@ class SingularitySetup:
                         options=LOCAL_LEVELS, mode=SelectSelectorMode.DROPDOWN, translation_key=CONF_LOCAL_LEVEL
                     )
                 ),
-                vol.Optional(CONF_CP_NODE, description={"suggested_value": node} if node else None): SelectSelector(
-                    SelectSelectorConfig(
-                        options=self.nodes, mode=SelectSelectorMode.DROPDOWN, custom_value=True, sort=True
-                    )
-                ),
             }
         )
 
     async def check_choice(self, user_input: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
-        """Fetch once with the chosen level and node; returns the options to store and any errors."""
+        """Fetch once with the chosen level; returns the options to store and any errors."""
         assert self.location is not None
         level = user_input[CONF_LOCAL_LEVEL]
-        node = str(user_input.get(CONF_CP_NODE) or "").strip()
+        agg_id = self.location.agg_id(level)
         errors: dict[str, str] = {}
-        now = dt_util.utcnow()
-        client = self.client()
         try:
-            if parse_consumed(await client.consumed_text(level, self.location.agg_id(level), now)) is None:
+            if parse_consumed(await self.client().consumed_text(level, agg_id, dt_util.utcnow())) is None:
+                LOGGER.warning("The Emissions API returned no recent local emissions for %s %s", level, agg_id)
                 errors[CONF_LOCAL_LEVEL] = "level_unavailable"
         except SingularityAuthError:
             errors["base"] = "invalid_auth"
         except SingularityError as err:  # incl. HTTP 403: the key works but can't query this level
-            LOGGER.warning("No local emissions for %s %s: %s", level, self.location.agg_id(level), err)
+            LOGGER.warning("No local emissions for %s %s: %s", level, agg_id, err)
             errors[CONF_LOCAL_LEVEL] = "level_unavailable"
-        if node and "base" not in errors:
-            try:
-                if marginal_from(*await client.marginal_texts(node, now), node) is None:
-                    errors[CONF_CP_NODE] = "unknown_node"
-            except SingularityAuthError:
-                errors["base"] = "invalid_auth"
-            except SingularityError as err:
-                LOGGER.warning("No marginal emissions for pricing node %s: %s", node, err)
-                errors[CONF_CP_NODE] = "unknown_node"
         options = {
             CONF_API_KEY: self.api_key,
             CONF_LOCAL_LEVEL: level,
             CONF_LOCATION: self.location.as_dict(),
         }
-        if node:
-            options[CONF_CP_NODE] = node
         return options, errors
 
 
@@ -229,7 +199,7 @@ class MisoStatsConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_singularity(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Area level for local emissions and an optional pricing node for marginal emissions."""
+        """The area level for local emissions."""
         setup = self._singularity
         assert setup is not None and setup.location is not None
         errors: dict[str, str] = {}
@@ -241,7 +211,7 @@ class MisoStatsConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="singularity",
             data_schema=setup.schema(user_input or {}),
             errors=errors,
-            description_placeholders=_location_placeholders(setup.location, setup.nodes),
+            description_placeholders=_location_placeholders(setup.location),
         )
 
     @staticmethod
@@ -280,7 +250,7 @@ class MisoStatsOptionsFlow(OptionsFlowWithReload):
         )
 
     async def async_step_singularity(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Area level and pricing node, pre-filled with the current choice."""
+        """The area level, pre-filled with the current choice."""
         setup = self._singularity
         assert setup is not None and setup.location is not None
         errors: dict[str, str] = {}
@@ -292,5 +262,5 @@ class MisoStatsOptionsFlow(OptionsFlowWithReload):
             step_id="singularity",
             data_schema=setup.schema(user_input or dict(self.config_entry.options)),
             errors=errors,
-            description_placeholders=_location_placeholders(setup.location, setup.nodes),
+            description_placeholders=_location_placeholders(setup.location),
         )

@@ -20,13 +20,12 @@ from .conftest import (
     SINGULARITY_OPTIONS,
     SINGULARITY_PATHS,
     TEST_API_KEY,
-    TEST_NODE,
     load_fixture,
     register_singularity,
     singularity_calls,
 )
 
-KEY_ONLY_ENTITIES = {"sensor.miso_co2_intensity_estimate", "sensor.miso_marginal_co2_intensity"}
+KEY_ONLY_ENTITIES = {"sensor.miso_co2_intensity_estimate"}
 
 
 async def _setup(hass: HomeAssistant, **options: Any) -> MockConfigEntry:
@@ -90,11 +89,6 @@ async def test_key_makes_carbon_numbers_local(hass: HomeAssistant, mock_singular
     assert float(estimate.state) == 446.0
     assert estimate.attributes["friendly_name"] == "MISO CO2 intensity estimate"
 
-    marginal = hass.states.get("sensor.miso_marginal_co2_intensity")
-    assert float(marginal.state) == 765.7  # AECI.ALTW, 15:25 UTC, 1688.0 lbs/MWh
-    assert marginal.attributes["cp_node"] == TEST_NODE
-    assert marginal.attributes["marginal_fuels"] == {"natural_gas": 0.92, "coal": 0.11, "wind": -0.03}
-
     # Demand still comes from MISO.
     assert float(hass.states.get("sensor.miso_demand").state) == 72619
 
@@ -123,32 +117,21 @@ async def test_local_index_backfilled(hass: HomeAssistant, mock_miso, freezer) -
     assert len(singularity_calls(mock_miso, "/events/consumed")) == 4  # back-filled once; hourly not due
 
 
-async def test_consumed_hourly_marginal_every_poll(hass: HomeAssistant, mock_singularity, freezer) -> None:
+async def test_consumed_fetched_hourly(hass: HomeAssistant, mock_singularity, freezer) -> None:
     freezer.move_to(FIXTURE_NOW_ISO)
     entry = await _setup(hass, **SINGULARITY_OPTIONS)
     coordinator = entry.runtime_data
     consumed = len(singularity_calls(mock_singularity, "/events/consumed"))
-    assert len(singularity_calls(mock_singularity, "/events/lme/by-node")) == 1
 
     freezer.move_to("2026-10-31 10:50:00-05:00")
     await coordinator.async_refresh()
     await hass.async_block_till_done(wait_background_tasks=True)
     assert len(singularity_calls(mock_singularity, "/events/consumed")) == consumed  # within the hour
-    assert len(singularity_calls(mock_singularity, "/events/lme/by-node")) == 2
 
     freezer.move_to("2026-10-31 11:36:00-05:00")
     await coordinator.async_refresh()
     await hass.async_block_till_done(wait_background_tasks=True)
     assert len(singularity_calls(mock_singularity, "/events/consumed")) == consumed + 1
-
-
-async def test_no_node_no_marginal_sensor(hass: HomeAssistant, mock_singularity, freezer) -> None:
-    freezer.move_to(FIXTURE_NOW_ISO)
-    options = {k: v for k, v in SINGULARITY_OPTIONS.items() if k != "cp_node"}
-    await _setup(hass, **options)
-    assert hass.states.get("sensor.miso_co2_intensity_estimate") is not None
-    assert hass.states.get("sensor.miso_marginal_co2_intensity") is None
-    assert not singularity_calls(mock_singularity, "/events/lme/by-node")
 
 
 async def test_rejected_key_raises_repair(hass: HomeAssistant, mock_miso, freezer) -> None:
@@ -198,7 +181,7 @@ async def test_removing_key_removes_entities(hass: HomeAssistant, mock_singulari
 
 
 async def test_retired_local_entities_removed(hass: HomeAssistant, mock_singularity, freezer) -> None:
-    """Pre-release builds had separate Local sensors; they're merged into the main ones."""
+    """Pre-release builds had separate Local and Marginal sensors; they're retired."""
     freezer.move_to(FIXTURE_NOW_ISO)
     entry = MockConfigEntry(domain=DOMAIN, title="MISO", data={}, options={**DEFAULT_OPTIONS, **SINGULARITY_OPTIONS})
     entry.add_to_hass(hass)
@@ -207,7 +190,7 @@ async def test_retired_local_entities_removed(hass: HomeAssistant, mock_singular
         registry.async_get_or_create(
             "sensor", DOMAIN, f"{entry.entry_id}_{key}", config_entry=entry, suggested_object_id=f"miso_{key}"
         )
-        for key in ("local_co2_intensity", "local_carbon_free")
+        for key in ("local_co2_intensity", "local_carbon_free", "marginal_co2_intensity")
     ]
     await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done(wait_background_tasks=True)
@@ -226,5 +209,4 @@ async def test_diagnostics_redact_key(hass: HomeAssistant, mock_singularity, fre
     assert api["miso_wide_estimate"] == 446.0
     assert api["local"]["rate_g_per_kwh"] == 404.7
     assert api["local_history"]["hours"] == 4 and api["local_history"]["area"] == "state:Michigan"
-    assert api["marginal"]["rate_g_per_kwh"] == 765.7
     assert diag["raw"]["consumed"]["data"][0]["agg_id"] == "Michigan"

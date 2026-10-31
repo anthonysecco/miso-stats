@@ -63,7 +63,6 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: MisoCon
             "miso_wide_estimate": None if data is None else data.estimate,
             "local_level": coordinator.local_level,
             "location": coordinator.location.as_dict(),
-            "cp_node": coordinator.cp_node,
             "local_history": None
             if coordinator.local_history is None
             else {
@@ -80,13 +79,6 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: MisoCon
                 "rate_g_per_kwh": round(data.local.rate, 1),
                 "carbon_free": data.local.carbon_free,
                 "renewables": data.local.renewables,
-            },
-            "marginal": None
-            if data is None or data.marginal is None
-            else {
-                "interval": data.marginal.timestamp.isoformat(),
-                "rate_g_per_kwh": round(data.marginal.rate, 1),
-                "fuels": data.marginal.fuels,
             },
         },
         "raw": {name: _json_or_text(text) for name, text in coordinator.raw.items()},

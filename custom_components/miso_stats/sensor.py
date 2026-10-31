@@ -189,17 +189,6 @@ def _share_attrs(miso_wide: Callable[[MisoData], float | None]) -> Callable[[Mis
     return attrs
 
 
-def _marginal_attrs(d: MisoData) -> dict[str, Any]:
-    marginal = d.marginal
-    if marginal is None:
-        return {}
-    return {
-        "cp_node": marginal.cp_node,
-        "interval": marginal.timestamp.isoformat(),
-        "marginal_fuels": marginal.fuels,
-    }
-
-
 def _index_attrs(d: MisoData) -> dict[str, Any]:
     r = d.index_range
     if r is None:
@@ -293,18 +282,6 @@ SENSORS: tuple[MisoSensorDescription, ...] = (
         available_fn=_has_load,
         entity_registry_enabled_default=False,
     ),
-    # --- optional: Emissions API (Singularity), with an API key and a pricing node ---
-    MisoSensorDescription(
-        key="marginal_co2_intensity",
-        translation_key="marginal_co2_intensity",
-        native_unit_of_measurement=UNIT_CO2_INTENSITY,
-        state_class=SensorStateClass.MEASUREMENT,
-        suggested_display_precision=0,
-        value_fn=lambda d: round(d.marginal.rate, 1) if d.marginal else None,
-        attrs_fn=_marginal_attrs,
-        available_fn=lambda d: d.marginal is not None,
-        exists_fn=lambda c: c.singularity is not None and c.cp_node is not None,
-    ),
     # --- supply mix (FuelMix), off by default ---
     _mw(
         "generation",
@@ -341,7 +318,7 @@ class MisoSensor(MisoEntity, SensorEntity):
     """A MISO value."""
 
     entity_description: MisoSensorDescription
-    _unrecorded_attributes = frozenset({"forecast", "fuel_mix", "marginal_fuels"})
+    _unrecorded_attributes = frozenset({"forecast", "fuel_mix"})
 
     @property
     def available(self) -> bool:

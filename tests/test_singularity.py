@@ -18,16 +18,11 @@ from custom_components.miso_stats.singularity import (
     SingularityError,
     SingularityForbiddenError,
     SingularityNoAreaError,
-    marginal_from,
     parse_consumed,
-    parse_lme,
-    parse_lmf,
     parse_location,
-    parse_nodes,
-    suggest_node,
 )
 
-from .conftest import TEST_API_KEY, TEST_NODE, load_fixture, register_singularity, singularity_calls
+from .conftest import TEST_API_KEY, load_fixture, register_singularity, singularity_calls
 
 NOW = datetime(2026, 10, 31, 15, 35, tzinfo=UTC)
 
@@ -89,22 +84,6 @@ def test_parse_consumed_metric_units_and_empty() -> None:
         parse_consumed(json.dumps({"message": "Forbidden"}))
 
 
-def test_parse_marginal() -> None:
-    lme, lmf = load_fixture("singularity_lme.json"), load_fixture("singularity_lmf.json")
-    stamp, rate = parse_lme(lme, TEST_NODE)
-    assert stamp == datetime(2026, 10, 31, 15, 25, tzinfo=UTC)
-    assert rate == pytest.approx(765.66, abs=0.01)  # 1688.0 lbs/MWh
-    assert parse_lmf(lmf, TEST_NODE, datetime(2026, 10, 31, 15, 20, tzinfo=UTC))["coal"] == 0.33
-    marginal = marginal_from(lme, lmf, TEST_NODE)
-    assert marginal is not None and marginal.fuels == {"natural_gas": 0.92, "coal": 0.11, "wind": -0.03}
-    assert parse_lme(lme, "OTHER.NODE") is None
-    assert marginal_from(json.dumps({"data": []}), lmf, TEST_NODE) is None
-
-
-def test_parse_nodes() -> None:
-    assert parse_nodes(load_fixture("singularity_nodes.json")) == ["AECI.ALTW", "ALTE.CASSVILLE", "AMIL.BALDWIN1"]
-
-
 async def test_client_sends_key_and_rounds_coordinates(hass: HomeAssistant, aioclient_mock) -> None:
     register_singularity(aioclient_mock)
     client = SingularityClient(async_get_clientsession(hass), TEST_API_KEY)
@@ -129,22 +108,16 @@ async def test_client_sends_key_and_rounds_coordinates(hass: HomeAssistant, aioc
     with pytest.raises(SingularityError):
         await client.consumed_text("county", None, NOW)
 
-    assert await client.nodes(NOW) == ["AECI.ALTW", "ALTE.CASSVILLE", "AMIL.BALDWIN1"]
-    assert singularity_calls(aioclient_mock, "/events/lme/by-timestamp")[0][1].query["timestamp"] == (
-        "2026-10-31T15:20:00Z"
-    )
-
 
 @pytest.mark.parametrize(
     ("status", "error"),
     [(401, SingularityAuthError), (403, SingularityForbiddenError), (429, SingularityError), (500, SingularityError)],
 )
 async def test_client_errors(hass: HomeAssistant, aioclient_mock, status: int, error: type[Exception]) -> None:
-    aioclient_mock.get(f"{SINGULARITY_API}/events/lme/by-node", status=status)
-    aioclient_mock.get(f"{SINGULARITY_API}/events/lmf/by-node", status=status)
+    aioclient_mock.get(f"{SINGULARITY_API}/events/consumed", status=status)
     client = SingularityClient(async_get_clientsession(hass), TEST_API_KEY)
     with pytest.raises(error):
-        await client.marginal_texts(TEST_NODE, NOW)
+        await client.consumed_text("state", "Michigan", NOW)
 
 
 async def test_client_location_not_found(hass: HomeAssistant, aioclient_mock) -> None:
@@ -163,18 +136,3 @@ def test_lba_codes() -> None:
     assert lba_code("Some New Utility") == "Some New Utility"  # unknown names pass through
     assert lba_code(None) is None
 
-
-def test_suggest_node() -> None:
-    assert suggest_node(["CONS.X", "DECO.DECO", "DECO.MONROE1"], "Detroit Edison Company") == "DECO.DECO"
-    assert suggest_node(["DECO.MONROE1", "DECO.LZ"], "DECO") == "DECO.LZ"
-    assert suggest_node(["DECO.MONROE1", "DECO.BELLERIVER"], "DECO") is None  # no obvious load zone
-    assert suggest_node(["AECI.ALTW"], "Detroit Edison Company") is None
-    assert suggest_node(["DECO.DECO"], None) is None
-
-
-async def test_client_node_list_empty_reports_response(hass: HomeAssistant, aioclient_mock) -> None:
-    aioclient_mock.get(f"{SINGULARITY_API}/events/lme/by-timestamp", text='{"data": []}')
-    client = SingularityClient(async_get_clientsession(hass), TEST_API_KEY)
-    with pytest.raises(SingularityError, match=r'last response: \{"data": \[\]\}'):
-        await client.nodes(NOW)
-    assert len(singularity_calls(aioclient_mock, "/events/lme/by-timestamp")) == 6

@@ -2,8 +2,7 @@
 
 The API's location lookup returns an LBA's full name ("Detroit Edison Company"), while its
 event queries take the code ("DECO"). The pairs come from the MISO Emissions Dashboard's own map
-data (miso.singularity.energy, October 2026). MISO's commercial pricing nodes use the same
-codes as prefixes ("DECO.NODE"), which is how a node in the home's LBA is suggested.
+data (miso.singularity.energy, October 2026).
 """
 
 from __future__ import annotations

@@ -3,21 +3,19 @@
     "step": {
       "user": {
         "title": "MISO Stats",
-        "description": "Adds MISO grid conditions (demand, load forecast, fuel mix, renewable and carbon-free shares, estimated CO2 intensity) and a carbon intensity index from MISO's free public feeds. Polls every 15 minutes by default.\n\nOptional: paste an API key for MISO's Emissions API (run by Singularity Energy) to get CO2 numbers for your own area instead of MISO-wide estimates, plus marginal emissions. Create a free account at miso.singularity.energy, then copy the key from {account_url}. Leave it empty to skip; you can add it later under Configure.",
+        "description": "Adds MISO grid conditions (demand, load forecast, fuel mix, renewable and carbon-free shares, estimated CO2 intensity) and a carbon intensity index from MISO's free public feeds. Polls every 15 minutes by default.\n\nOptional: paste an API key for MISO's Emissions API (run by Singularity Energy) to get measured CO2 numbers for your own area instead of MISO-wide estimates. Create a free account at miso.singularity.energy, then copy the key from {account_url}. Leave it empty to skip; you can add it later under Configure.",
         "data": {
           "api_key": "Emissions API key (optional)"
         }
       },
       "singularity": {
-        "title": "Local and marginal emissions",
-        "description": "Your home is in {county} County, {state}: local resource zone {lrz}, balancing area {lba} ({lba_code}), {subregion} subregion.\n\nWith a key, CO2 intensity, the carbon-free and renewable shares and the Carbon Intensity Index all come from the Emissions API for the **local area** you choose here.\n\nFor **Marginal CO2 intensity**, optionally pick a MISO commercial pricing node near you: {node_count} nodes are listed. Names start with the balancing-area code, so type {lba_code} to see the ones in your area. The Marginal map at miso.singularity.energy/marginal shows them by location.",
+        "title": "Local emissions",
+        "description": "Your home is in {county} County, {state}: local resource zone {lrz}, balancing area {lba} ({lba_code}), {subregion} subregion.\n\nWith a key, CO2 intensity, the carbon-free and renewable shares and the Carbon Intensity Index all come from the Emissions API for the **local area** you choose here.",
         "data": {
-          "local_level": "Local area",
-          "cp_node": "Pricing node (optional)"
+          "local_level": "Local area"
         },
         "data_description": {
-          "local_level": "Hourly consumed (location-based) emissions, published about 90 minutes late. State and subregion are current; zone and balancing-area data may lag, and setup tells you if an area has no recent data.",
-          "cp_node": "Locational marginal emissions every 5 minutes at this node. Optional, and independent of the local area."
+          "local_level": "Hourly consumed (location-based) emissions, published about 90 minutes late. If the chosen area has no recent data, setup says so and you can pick another."
         }
       }
     },
@@ -26,8 +24,7 @@
       "invalid_auth": "The Emissions API rejected this key. Copy it again from miso.singularity.energy/account.",
       "cannot_connect_singularity": "Could not reach MISO's Emissions API. Try again in a few minutes.",
       "outside_miso": "Your home location (Settings → System → General) isn't in a MISO area the Emissions API covers.",
-      "level_unavailable": "The Emissions API has no recent data for this area. Pick another level.",
-      "unknown_node": "No recent marginal emissions for this pricing node. Check the name, or leave it empty."
+      "level_unavailable": "The Emissions API has no recent data for this area. Pick another level."
     },
     "abort": {
       "single_instance_allowed": "MISO Stats is already configured. Change its settings under Configure."
@@ -52,19 +49,17 @@
           "gas_emission_factor": "Grams of CO2 per kWh from natural gas plants (about 400 for a combined-cycle-heavy fleet).",
           "low_carbon_index_threshold": "Low Carbon Energy Now is on when the Carbon Intensity Index is at or below this (0 = the cleanest hour of recent days, 100 = the dirtiest).",
           "index_days": "Days of history (7-30) whose cleanest and dirtiest hour set the Carbon Intensity Index's 0 and 100.",
-          "api_key": "With a key, the carbon numbers come from the Emissions API for your area, and Marginal CO2 intensity becomes available. Clear it to go back to MISO-wide estimates."
+          "api_key": "With a key, the carbon numbers come from the Emissions API for your area. Clear it to go back to MISO-wide estimates."
         }
       },
       "singularity": {
-        "title": "Local and marginal emissions",
-        "description": "Your home is in {county} County, {state}: local resource zone {lrz}, balancing area {lba} ({lba_code}), {subregion} subregion.\n\nWith a key, CO2 intensity, the carbon-free and renewable shares and the Carbon Intensity Index all come from the Emissions API for the **local area** you choose here.\n\nFor **Marginal CO2 intensity**, optionally pick a MISO commercial pricing node near you: {node_count} nodes are listed. Names start with the balancing-area code, so type {lba_code} to see the ones in your area. The Marginal map at miso.singularity.energy/marginal shows them by location.",
+        "title": "Local emissions",
+        "description": "Your home is in {county} County, {state}: local resource zone {lrz}, balancing area {lba} ({lba_code}), {subregion} subregion.\n\nWith a key, CO2 intensity, the carbon-free and renewable shares and the Carbon Intensity Index all come from the Emissions API for the **local area** you choose here.",
         "data": {
-          "local_level": "Local area",
-          "cp_node": "Pricing node (optional)"
+          "local_level": "Local area"
         },
         "data_description": {
-          "local_level": "Hourly consumed (location-based) emissions, published about 90 minutes late. State and subregion are current; zone and balancing-area data may lag, and setup tells you if an area has no recent data.",
-          "cp_node": "Locational marginal emissions every 5 minutes at this node. Optional, and independent of the local area."
+          "local_level": "Hourly consumed (location-based) emissions, published about 90 minutes late. If the chosen area has no recent data, setup says so and you can pick another."
         }
       }
     },
@@ -72,8 +67,7 @@
       "invalid_auth": "The Emissions API rejected this key. Copy it again from miso.singularity.energy/account.",
       "cannot_connect_singularity": "Could not reach MISO's Emissions API. Try again in a few minutes.",
       "outside_miso": "Your home location (Settings → System → General) isn't in a MISO area the Emissions API covers.",
-      "level_unavailable": "The Emissions API has no recent data for this area. Pick another level.",
-      "unknown_node": "No recent marginal emissions for this pricing node. Check the name, or leave it empty."
+      "level_unavailable": "The Emissions API has no recent data for this area. Pick another level."
     }
   },
   "selector": {
@@ -90,7 +84,7 @@
   "issues": {
     "invalid_api_key": {
       "title": "MISO Emissions API key rejected",
-      "description": "MISO's Emissions API (run by Singularity Energy) no longer accepts the key MISO Stats uses, so CO2 intensity, the carbon-free and renewable shares, the index and Marginal CO2 intensity are unavailable. Copy the key again from miso.singularity.energy/account and paste it under Settings → Devices & services → MISO Stats → Configure. This message clears itself once a request succeeds."
+      "description": "MISO's Emissions API (run by Singularity Energy) no longer accepts the key MISO Stats uses, so CO2 intensity, the carbon-free and renewable shares and the index are unavailable. Copy the key again from miso.singularity.energy/account and paste it under Settings → Devices & services → MISO Stats → Configure. This message clears itself once a request succeeds."
     }
   },
   "entity": {
@@ -102,13 +96,12 @@
       "co2_intensity_index": { "name": "Carbon Intensity Index" },
       "renewables": { "name": "Renewables" },
       "carbon_free": { "name": "Carbon-free" },
+      "co2_intensity_estimate": { "name": "CO2 intensity estimate" },
       "co2_emissions": { "name": "CO2 emissions" },
       "demand": { "name": "Demand" },
       "todays_peak_demand": { "name": "Today's peak demand" },
       "forecast_peak_demand_today": { "name": "Forecast peak demand today" },
       "load_forecast": { "name": "Load forecast" },
-      "co2_intensity_estimate": { "name": "CO2 intensity estimate" },
-      "marginal_co2_intensity": { "name": "Marginal CO2 intensity" },
       "generation": { "name": "Generation" },
       "coal": { "name": "Coal" },
       "natural_gas": { "name": "Natural gas" },

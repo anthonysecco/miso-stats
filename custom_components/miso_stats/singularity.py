@@ -4,8 +4,6 @@ Optional: it needs a free account and API key (https://miso.singularity.energy/a
 Docs: https://miso.singularity.energy/api-docs. Limits: 5 requests/s, 100,000 requests/month.
 - events/consumed: hourly location-based (consumed) CO2e rate and fuel mix for MISO, a
   subregion, local resource zone, local balancing authority, state or county.
-- events/lme/by-node and events/lmf/by-node: 5-minute locational marginal emissions and the
-  marginal fuels at commercial pricing nodes.
 - data-availability/lookup/coordinates: which county, state, zone and LBA a location is in.
 
 All times are UTC. Rates are requested in US units (lbs/MWh) and converted to g/kWh; metric
@@ -14,7 +12,6 @@ fields (kgs/MWh, which equals g/kWh) are read too, should the API return them.
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -29,7 +26,6 @@ from .const import REQUEST_TIMEOUT, SINGULARITY_API
 
 G_PER_KWH_PER_LB_PER_MWH = 0.45359237  # 1 lb/MWh = 453.59237 g / 1000 kWh
 CONSUMED_LOOKBACK = timedelta(hours=6)  # consumed data lags about 90 minutes; ask for a few hours
-MARGINAL_LOOKBACK = timedelta(minutes=30)
 
 
 class SingularityError(Exception):
@@ -211,50 +207,6 @@ def _percentages(mix: Mapping[str, Any]) -> dict[str, float]:
     return {k: round(v * scale, 2) for k, v in values.items()}
 
 
-# --- marginal emissions -----------------------------------------------------------------
-
-
-@dataclass(slots=True, frozen=True)
-class Marginal:
-    """Locational marginal emissions at one pricing node for one 5-minute interval."""
-
-    cp_node: str
-    timestamp: datetime  # start of the interval, UTC
-    rate: float  # g CO2e/kWh
-    fuels: dict[str, float] = field(default_factory=dict)  # net redispatch, MW per MW of extra load
-
-
-def parse_lme(text: str, cp_node: str) -> tuple[datetime, float] | None:
-    """The latest (interval, g/kWh) for a node from events/lme/by-node."""
-    best: tuple[datetime, float] | None = None
-    for event in _events(text, "LME events"):
-        if event.get("cp_node") not in (None, cp_node):
-            continue
-        stamp, rate = _timestamp(event.get("timestamp")), _rate_g_per_kwh(event, "rate_co2e")
-        if stamp is not None and rate is not None and (best is None or stamp > best[0]):
-            best = (stamp, rate)
-    return best
-
-
-def parse_lmf(text: str, cp_node: str, at: datetime | None = None) -> dict[str, float]:
-    """Marginal fuels for a node from events/lmf/by-node: the interval `at`, else the latest."""
-    by_time: dict[datetime, dict[str, float]] = {}
-    for event in _events(text, "LMF events"):
-        stamp = _timestamp(event.get("timestamp"))
-        fuels = event.get("net_redispatch_mw_per_mw")
-        if event.get("cp_node") not in (None, cp_node) or stamp is None or not isinstance(fuels, dict):
-            continue
-        by_time[stamp] = {k: v for k, v in ((k, _number(v)) for k, v in fuels.items()) if v is not None}
-    if not by_time:
-        return {}
-    return by_time.get(at) if at in by_time else by_time[max(by_time)]
-
-
-def parse_nodes(text: str) -> list[str]:
-    """Sorted commercial pricing node names from events/lme/by-timestamp."""
-    return sorted({str(e["cp_node"]) for e in _events(text, "LME events") if e.get("cp_node")})
-
-
 # --- HTTP -------------------------------------------------------------------------------
 
 
@@ -311,62 +263,3 @@ class SingularityClient:
                 raise SingularityError(f"no {level} known for this location")
             params["agg_ids"] = agg_id
         return await self._get("/events/consumed", params)
-
-    async def marginal_texts(self, cp_node: str, now: datetime) -> tuple[str, str]:
-        """Raw LME and LMF events for a node over the last half hour."""
-        params = {"cp_nodes": cp_node, "start": _utc(now - MARGINAL_LOOKBACK), "end": _utc(now)}
-        lme, lmf = await asyncio.gather(
-            self._get("/events/lme/by-node", {**params, "units": "us"}),
-            self._get("/events/lmf/by-node", params),
-        )
-        return lme, lmf
-
-    async def nodes(self, now: datetime) -> list[str]:
-        """Commercial pricing node names, from a recent interval's LME for all nodes.
-
-        Tries intervals further back until one has data; raises with a sample of the last
-        response when none does, so the reason shows up in the log.
-        """
-        interval = now.astimezone(UTC).replace(second=0, microsecond=0)
-        interval -= timedelta(minutes=interval.minute % 5)
-        text = ""
-        tried = []
-        for back in NODE_LIST_LOOKBACKS:
-            stamp = _utc(interval - timedelta(minutes=back))
-            tried.append(stamp)
-            text = await self._get("/events/lme/by-timestamp", {"timestamp": stamp, "units": "us"})
-            if names := parse_nodes(text):
-                return names
-        raise SingularityError(f"no pricing nodes for intervals {', '.join(tried)}; last response: {text[:300]}")
-
-
-NODE_LIST_LOOKBACKS = (15, 30, 60, 180, 720, 1440)  # minutes before the current 5-minute interval
-
-
-def suggest_node(nodes: list[str], lba: str | None) -> str | None:
-    """A pricing node in the home's LBA to preselect: its load-zone-like node when one is obvious.
-
-    Node names start with the LBA code ("DECO.NODE"). Prefers "<code>.<code>", then a name
-    marking a load zone; otherwise suggests nothing rather than an arbitrary plant's node.
-    """
-    code = lba_code(lba)
-    if not code:
-        return None
-    mine = [n for n in nodes if n.upper().startswith(f"{code.upper()}.")]
-    for name in mine:
-        if name.upper() == f"{code.upper()}.{code.upper()}":
-            return name
-    for marker in (".LZ", "LOADZONE", "LOAD_ZONE", ".LOAD", "_LZ"):
-        for name in mine:
-            if marker in name.upper():
-                return name
-    return None
-
-
-def marginal_from(lme_text: str, lmf_text: str, cp_node: str) -> Marginal | None:
-    """Combine the latest LME interval with that interval's marginal fuels."""
-    latest = parse_lme(lme_text, cp_node)
-    if latest is None:
-        return None
-    stamp, rate = latest
-    return Marginal(cp_node=cp_node, timestamp=stamp, rate=rate, fuels=parse_lmf(lmf_text, cp_node, stamp))

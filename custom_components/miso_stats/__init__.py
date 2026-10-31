@@ -16,19 +16,17 @@ RETIRED_ENTITIES: tuple[tuple[Platform, str], ...] = (
     (Platform.SENSOR, "hub_price"),
     (Platform.SENSOR, "local_co2_intensity"),  # merged into CO2 intensity when a key is set
     (Platform.SENSOR, "local_carbon_free"),  # merged into Carbon-free when a key is set
+    (Platform.SENSOR, "marginal_co2_intensity"),  # the Emissions API serves no marginal data to keys yet
 )
-# Entities that exist only with an Emissions API key (marginal also needs a pricing node).
-LOCAL_ENTITIES = ("co2_intensity_estimate",)
-MARGINAL_ENTITIES = ("marginal_co2_intensity",)
+# Entities that exist only with an Emissions API key.
+KEY_ENTITIES = ("co2_intensity_estimate",)
 
 
 def _remove_unused_entities(hass: HomeAssistant, entry: MisoConfigEntry, coordinator: MisoCoordinator) -> None:
-    """Drop retired entities, and the Emissions API ones once the key or node is removed."""
+    """Drop retired entities, and the Emissions API ones once the key is removed."""
     unused = list(RETIRED_ENTITIES)
     if coordinator.singularity is None:
-        unused += [(Platform.SENSOR, key) for key in LOCAL_ENTITIES]
-    if coordinator.singularity is None or coordinator.cp_node is None:
-        unused += [(Platform.SENSOR, key) for key in MARGINAL_ENTITIES]
+        unused += [(Platform.SENSOR, key) for key in KEY_ENTITIES]
     registry = er.async_get(hass)
     for platform, key in unused:
         if entity_id := registry.async_get_entity_id(platform, DOMAIN, f"{entry.entry_id}_{key}"):

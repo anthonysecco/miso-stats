@@ -5,7 +5,7 @@ Two sources:
   MISO-wide CO2 intensity.
 - MISO's Emissions API, run by Singularity (only with an API key): when a key is set, every
   carbon number (CO2 intensity, carbon-free and renewable shares, the index and Low Carbon
-  Energy Now) comes from it, for the chosen local area. Marginal emissions need a pricing node.
+  Energy Now) comes from it, for the chosen local area.
 """
 
 from __future__ import annotations
@@ -37,7 +37,6 @@ from .const import (
     CARBON_FREE_FUELS,
     CONF_API_KEY,
     CONF_COAL_FACTOR,
-    CONF_CP_NODE,
     CONF_GAS_FACTOR,
     CONF_INDEX_DAYS,
     CONF_LOCAL_LEVEL,
@@ -51,7 +50,6 @@ from .const import (
     LOCAL_REFRESH,
     LOCAL_STALE_AFTER,
     LOGGER,
-    MARGINAL_STALE_AFTER,
     MAX_INDEX_DAYS,
     MIN_INDEX_DAYS,
     RENEWABLE_FUELS,
@@ -62,11 +60,9 @@ from .history import IndexRange, LocalHistory, MixHistory, co2_index
 from .singularity import (
     LocalEmissions,
     Location,
-    Marginal,
     SingularityAuthError,
     SingularityClient,
     SingularityError,
-    marginal_from,
     parse_consumed_events,
 )
 
@@ -99,7 +95,6 @@ class MisoData:
     index_range: IndexRange | None = None
     errors: dict[str, str] = field(default_factory=dict)
     local: LocalEmissions | None = None
-    marginal: Marginal | None = None
 
 
 def options_with_defaults(options: dict[str, Any]) -> dict[str, Any]:
@@ -196,16 +191,14 @@ class MisoCoordinator(DataUpdateCoordinator[MisoData]):
         self.singularity: SingularityClient | None = None
         self.local_level: str = str(options.get(CONF_LOCAL_LEVEL) or DEFAULT_LOCAL_LEVEL)
         self.location = Location.from_dict(options.get(CONF_LOCATION))
-        self.cp_node: str | None = str(options.get(CONF_CP_NODE) or "").strip() or None
         self.local_history: LocalHistory | None = None
         if has_api_key(options):
             self.singularity = SingularityClient(async_get_clientsession(hass), str(options[CONF_API_KEY]).strip())
-            self.raw.update(consumed=None, lme=None, lmf=None)
+            self.raw["consumed"] = None
             area = f"{self.local_level}:{self.location.agg_id(self.local_level) or 'miso'}"
             self.local_history = LocalHistory(hass, area)
         self._local: LocalEmissions | None = None
         self._local_fetched: datetime | None = None
-        self._marginal: Marginal | None = None
         self._backfill_task: asyncio.Task[None] | None = None
         self._backfill_tried: datetime | None = None
         self._backfilled = False
@@ -244,7 +237,7 @@ class MisoCoordinator(DataUpdateCoordinator[MisoData]):
             self._window(dt_util.now()),
             self.data.local,
         )
-        data.errors, data.marginal = self.data.errors, self.data.marginal
+        data.errors = self.data.errors
         self.data = data
         self.async_update_listeners()
 
@@ -320,7 +313,7 @@ class MisoCoordinator(DataUpdateCoordinator[MisoData]):
             self._rederive()
 
     async def _async_update_singularity(self, now: datetime, errors: dict[str, str]) -> None:
-        """Consumed emissions once an hour and marginal emissions every poll, from the Emissions API.
+        """Consumed emissions for the local area once an hour, from the Emissions API.
 
         Failures never fail the whole update: the affected sensors keep their last value while it's
         recent. A rejected key (HTTP 401) raises a Repairs issue until a call succeeds again.
@@ -337,10 +330,6 @@ class MisoCoordinator(DataUpdateCoordinator[MisoData]):
                     self._local = events[-1]
                     await history.async_add(events, now)
                 self._local_fetched = now
-            if self.cp_node:
-                lme_text, lmf_text = await client.marginal_texts(self.cp_node, now)
-                self.raw["lme"], self.raw["lmf"] = lme_text, lmf_text
-                self._marginal = marginal_from(lme_text, lmf_text, self.cp_node) or self._marginal
         except SingularityAuthError as err:
             errors["singularity"] = str(err)
             ir.async_create_issue(
@@ -358,8 +347,6 @@ class MisoCoordinator(DataUpdateCoordinator[MisoData]):
             ir.async_delete_issue(self.hass, DOMAIN, ISSUE_INVALID_KEY)
         if self._local is not None and now - self._local.timestamp > LOCAL_STALE_AFTER:
             self._local = None
-        if self._marginal is not None and now - self._marginal.timestamp > MARGINAL_STALE_AFTER:
-            self._marginal = None
 
     # --- poll -----------------------------------------------------------------------------
 
@@ -391,5 +378,4 @@ class MisoCoordinator(DataUpdateCoordinator[MisoData]):
         self._maybe_backfill_local(now)
         data = derive(fuel_mix, self._load, dict(self.config_entry.options), self._window(now), self._local)
         data.errors = errors
-        data.marginal = self._marginal
         return data
