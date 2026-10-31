@@ -25,6 +25,7 @@ from .conftest import (
     singularity_calls,
 )
 
+
 async def _setup(hass: HomeAssistant, **options: Any) -> MockConfigEntry:
     entry = MockConfigEntry(domain=DOMAIN, title="MISO", data={}, options={**DEFAULT_OPTIONS, **options})
     entry.add_to_hass(hass)
