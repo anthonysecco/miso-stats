@@ -28,7 +28,6 @@ ENABLED_BY_DEFAULT = {
     "sensor.miso_carbon_intensity_index",
     "sensor.miso_renewables",
     "sensor.miso_carbon_free",
-    "sensor.miso_demand",
     "sensor.miso_data_updated",
 }
 
@@ -69,7 +68,12 @@ async def test_default_enabled_entities(hass: HomeAssistant, mock_miso) -> None:
     registry = er.async_get(hass)
     entries = er.async_entries_for_config_entry(registry, entry.entry_id)
     assert {e.entity_id for e in entries if e.disabled_by is None} == ENABLED_BY_DEFAULT
-    for hidden in ("sensor.miso_coal", "sensor.miso_load_forecast", "binary_sensor.miso_low_carbon_energy_now"):
+    for hidden in (
+        "sensor.miso_demand",
+        "sensor.miso_coal",
+        "sensor.miso_load_forecast",
+        "binary_sensor.miso_low_carbon_energy_now",
+    ):
         item = registry.async_get(hidden)
         assert item is not None and item.disabled_by is er.RegistryEntryDisabler.INTEGRATION
 
@@ -79,6 +83,7 @@ async def test_setup_creates_entities(hass: HomeAssistant, mock_miso, freezer) -
     entry = await _setup(
         hass,
         enable=(
+            "sensor.miso_demand",
             "sensor.miso_coal",
             "sensor.miso_imports",
             "sensor.miso_battery_storage",
@@ -133,7 +138,7 @@ async def test_load_feed_down(hass: HomeAssistant, aioclient_mock, fuel_mix_text
     entry = await _setup(hass)
     assert entry.state is ConfigEntryState.LOADED
     assert float(hass.states.get("sensor.miso_co2_intensity").state) == 446.0
-    assert hass.states.get("sensor.miso_demand").state == STATE_UNAVAILABLE
+    assert entry.runtime_data.data.load is None  # the demand sensors read this and go unavailable
     assert set(entry.runtime_data.data.errors) == {"load"}
 
 
@@ -153,12 +158,12 @@ async def test_failed_feed_keeps_recent_values(
     freezer.move_to("2026-10-31 10:50:00-05:00")  # 20 minutes after the reading
     await coordinator.async_refresh()
     await hass.async_block_till_done()
-    assert float(hass.states.get("sensor.miso_demand").state) == 72619
+    assert coordinator.data.load is not None and coordinator.data.load.demand[1] == 72619
 
     freezer.move_to("2026-10-31 11:05:00-05:00")  # 35 minutes after
     await coordinator.async_refresh()
     await hass.async_block_till_done()
-    assert hass.states.get("sensor.miso_demand").state == STATE_UNAVAILABLE
+    assert coordinator.data.load is None
 
 
 async def test_fuel_mix_down_retries(hass: HomeAssistant, aioclient_mock) -> None:

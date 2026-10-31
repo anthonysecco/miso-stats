@@ -1,6 +1,6 @@
 [project]
 name = "miso-stats"
-version = "0.1.0"
+version = "0.2.0"
 description = "Home Assistant integration for MISO grid conditions, an estimated CO2 intensity and a carbon intensity index"
 requires-python = ">=3.13"
 license = "MIT"

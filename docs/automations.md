@@ -2,6 +2,8 @@
 
 Replace the `switch.*`, `climate.*` and `notify.*` entities with your own. Each example works on its own; paste it into **Settings → Automations → ⋮ → Edit in YAML**, or into `automations.yaml` without the leading `- `.
 
+Every example works with or without an [Emissions API key](../README.md#utility-level-co2-with-an-api-key-optional). With a key the carbon sensors describe your own utility's area and update hourly (about 90 minutes behind), so the `for:` delays below matter less and thresholds are best picked from a few days of your own history.
+
 - [EV charging when the grid is clean](#ev-charging-when-the-grid-is-clean)
 - [Water heater boost when the grid is clean](#water-heater-boost-when-the-grid-is-clean)
 - [Ease off near the forecast peak](#ease-off-near-the-forecast-peak)
@@ -119,7 +121,7 @@ mode: single
 
 ## Dashboard cards
 
-Grid summary with built-in cards:
+Grid summary with built-in cards (enable `sensor.miso_demand` first; it's off by default):
 ```yaml
 type: vertical-stack
 cards:
@@ -190,4 +192,9 @@ Fossil share (coal + gas) of the generation the estimate uses:
 Is the grid charging its batteries? (enable the Battery storage sensor first)
 ```jinja
 {{ states('sensor.miso_battery_storage') | float(0) < 0 }}
+```
+
+With an Emissions API key: how much cleaner (or dirtier) your utility's electricity is than the MISO-wide estimate, in g/kWh:
+```jinja
+{{ (states('sensor.miso_co2_intensity') | float(0) - state_attr('sensor.miso_co2_intensity', 'miso_wide') | float(0)) | round(0) }}
 ```

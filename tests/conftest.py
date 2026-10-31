@@ -13,6 +13,7 @@ from custom_components.miso_stats.const import (
     FUEL_MIX_YESTERDAY_URL,
     LOAD_URL,
     MISO_TZ,
+    SINGULARITY_API,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -20,6 +21,25 @@ FIXTURES = Path(__file__).parent / "fixtures"
 FIXTURE_NOW = datetime(2026, 10, 31, 10, 35, tzinfo=MISO_TZ)
 FIXTURE_NOW_ISO = "2026-10-31 10:35:00-05:00"
 YESTERDAY = date(2026, 10, 30)
+
+# Emissions API (Singularity). The consumed fixture is a real Michigan response; the location
+# fixture follows the docs and the real lookup.
+TEST_API_KEY = "test-key-not-real"
+SINGULARITY_OPTIONS = {
+    "api_key": TEST_API_KEY,
+    "local_level": "state",
+    "location": {
+        "county": "Wayne",
+        "state": "Michigan",
+        "lrz": 7,
+        "lba": "Detroit Edison Company",
+        "subregion": "CENTRAL",
+    },
+}
+SINGULARITY_PATHS = {
+    "/data-availability/lookup/coordinates": "singularity_location.json",
+    "/events/consumed": "singularity_consumed.json",
+}
 
 
 def load_fixture(name: str) -> str:
@@ -64,3 +84,24 @@ def mock_miso(aioclient_mock, fuel_mix_text, load_text, yesterday_text):
     aioclient_mock.get(LOAD_URL, text=load_text)
     aioclient_mock.get(FUEL_MIX_YESTERDAY_URL, text=yesterday_text)
     return aioclient_mock
+
+
+def register_singularity(aioclient_mock, status: int = 200) -> None:
+    """Every Emissions API path answers with its fixture (or the given error status)."""
+    for path, fixture in SINGULARITY_PATHS.items():
+        if status == 200:
+            aioclient_mock.get(f"{SINGULARITY_API}{path}", text=load_fixture(fixture))
+        else:
+            aioclient_mock.get(f"{SINGULARITY_API}{path}", status=status)
+
+
+@pytest.fixture
+def mock_singularity(mock_miso):
+    """MISO's feeds plus the Emissions API answer with fixtures."""
+    register_singularity(mock_miso)
+    return mock_miso
+
+
+def singularity_calls(aioclient_mock, path: str) -> list:
+    """Recorded calls to one Emissions API path."""
+    return [c for c in aioclient_mock.mock_calls if str(c[1]).split("?")[0] == f"{SINGULARITY_API}{path}"]

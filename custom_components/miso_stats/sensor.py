@@ -18,7 +18,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import FUEL_KEYS
-from .coordinator import MisoConfigEntry, MisoData
+from .coordinator import SOURCE_MISO, SOURCE_SINGULARITY, MisoConfigEntry, MisoData
 from .entity import MisoEntity
 
 PARALLEL_UPDATES = 0
@@ -149,15 +149,52 @@ def _forecast_attrs(d: MisoData) -> dict[str, Any]:
     }
 
 
+def _estimate_attrs(d: MisoData) -> dict[str, Any]:
+    """The MISO-wide estimate's inputs."""
+    return {"source": SOURCE_MISO, "coal_factor": d.coal_factor, "gas_factor": d.gas_factor, "estimated": True}
+
+
+def _local_area(d: MisoData) -> dict[str, Any]:
+    local = d.local
+    if local is None:
+        return {"source": SOURCE_SINGULARITY}
+    return {
+        "source": SOURCE_SINGULARITY,
+        "area_level": local.agg_type,
+        "area": local.agg_id,
+        "hour": local.timestamp.isoformat(),
+    }
+
+
 def _intensity_attrs(d: MisoData) -> dict[str, Any]:
-    return {"coal_factor": d.coal_factor, "gas_factor": d.gas_factor, "estimated": True}
+    if d.source != SOURCE_SINGULARITY:
+        return _estimate_attrs(d)
+    attrs = _local_area(d)
+    if d.local and d.local.non_cfe_rate is not None:
+        attrs["fossil_rate"] = round(d.local.non_cfe_rate, 1)
+    attrs["miso_wide"] = d.estimate  # the MISO-wide estimate, for comparison
+    return attrs
+
+
+def _share_attrs(miso_wide: Callable[[MisoData], float | None]) -> Callable[[MisoData], dict[str, Any]]:
+    def attrs(d: MisoData) -> dict[str, Any]:
+        if d.source != SOURCE_SINGULARITY:
+            return {"source": SOURCE_MISO}
+        result = _local_area(d)
+        if d.local is not None:
+            result["fuel_mix"] = {k: v for k, v in d.local.fuel_mix.items() if k != "non_cfe"}
+        result["miso_wide"] = miso_wide(d)
+        return result
+
+    return attrs
 
 
 def _index_attrs(d: MisoData) -> dict[str, Any]:
     r = d.index_range
     if r is None:
-        return {}
+        return {"source": d.source}
     return {
+        "source": d.source,
         "co2_intensity": d.co2_intensity,
         "window_min": r.min_g,
         "window_min_hour": r.min_at.isoformat(),
@@ -177,6 +214,7 @@ SENSORS: tuple[MisoSensorDescription, ...] = (
         suggested_display_precision=0,
         value_fn=lambda d: d.co2_intensity,
         attrs_fn=_intensity_attrs,
+        available_fn=lambda d: d.co2_intensity is not None,
     ),
     MisoSensorDescription(
         key="co2_intensity_index",
@@ -188,8 +226,18 @@ SENSORS: tuple[MisoSensorDescription, ...] = (
         attrs_fn=_index_attrs,
         available_fn=lambda d: d.index_range is not None,
     ),
-    _pct("renewables", lambda d: d.renewables),
-    _pct("carbon_free", lambda d: d.carbon_free),
+    _pct(
+        "renewables",
+        lambda d: d.renewables,
+        attrs_fn=_share_attrs(lambda d: d.miso_renewables),
+        available_fn=lambda d: d.renewables is not None,
+    ),
+    _pct(
+        "carbon_free",
+        lambda d: d.carbon_free,
+        attrs_fn=_share_attrs(lambda d: d.miso_carbon_free),
+        available_fn=lambda d: d.carbon_free is not None,
+    ),
     MisoSensorDescription(
         key="co2_emissions",
         translation_key="co2_emissions",
@@ -197,11 +245,11 @@ SENSORS: tuple[MisoSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=0,
         value_fn=lambda d: d.co2_emissions,
-        attrs_fn=_intensity_attrs,
+        attrs_fn=_estimate_attrs,
         entity_registry_enabled_default=False,
     ),
     # --- demand (RealTimeTotalLoad) ---
-    _mw("demand", _demand, attrs_fn=_demand_attrs, available_fn=_has_load),
+    _mw("demand", _demand, attrs_fn=_demand_attrs, available_fn=_has_load, entity_registry_enabled_default=False),
     _mw(
         "todays_peak_demand",
         _peak,
@@ -257,7 +305,7 @@ class MisoSensor(MisoEntity, SensorEntity):
     """A MISO value."""
 
     entity_description: MisoSensorDescription
-    _unrecorded_attributes = frozenset({"forecast"})
+    _unrecorded_attributes = frozenset({"forecast", "fuel_mix"})
 
     @property
     def available(self) -> bool:

@@ -14,6 +14,10 @@ FUEL_MIX_YESTERDAY_URL = f"{API_BASE}/FuelMix/Yesterday"
 LOAD_URL = f"{API_BASE}/RealTimeTotalLoad"
 DISPLAYS_URL = "https://www.misoenergy.org/markets-and-operations/real-time--market-data/markets-displays/"
 
+# MISO's Emissions API, hosted by Singularity Energy (free account and API key; 5 req/s, 100k req/month).
+SINGULARITY_API = "https://api.miso.singularity.energy/v1"
+SINGULARITY_ACCOUNT_URL = "https://miso.singularity.energy/account"
+
 ATTRIBUTION = "Data from MISO's public real-time data APIs (unofficial, not affiliated with MISO)"
 # MISO runs on Eastern Standard Time all year (no daylight saving): "10:30 EST" is 15:30 UTC.
 MISO_TZ = timezone(timedelta(hours=-5), "EST")
@@ -44,6 +48,18 @@ CONF_COAL_FACTOR = "coal_emission_factor"  # g CO2/kWh
 CONF_GAS_FACTOR = "gas_emission_factor"  # g CO2/kWh
 CONF_LOW_CARBON_INDEX = "low_carbon_index_threshold"  # carbon intensity index, 0-100
 CONF_INDEX_DAYS = "index_days"  # days of history behind the carbon intensity index
+# Optional Singularity (MISO Emissions API) settings
+CONF_API_KEY = "api_key"
+CONF_LOCAL_LEVEL = "local_level"  # area level for consumed emissions
+CONF_LOCATION = "location"  # area IDs looked up from the home location at setup
+
+# Consumed-emissions area levels, from the most local; the local balancing area (the utility)
+# is the default. County isn't offered: MISO publishes county rates quarterly, too late for a
+# live sensor.
+LOCAL_LEVELS = ["lba", "lrz", "state", "subregion", "miso"]
+DEFAULT_LOCAL_LEVEL = "lba"
+LOCAL_REFRESH = timedelta(hours=1)  # consumed data is hourly, published about 90 minutes late
+LOCAL_STALE_AFTER = timedelta(hours=4)
 
 DEFAULT_SCAN_INTERVAL = 15
 MIN_SCAN_INTERVAL = 5

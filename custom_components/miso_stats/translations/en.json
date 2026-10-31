@@ -3,11 +3,28 @@
     "step": {
       "user": {
         "title": "MISO Stats",
-        "description": "Adds MISO grid conditions (demand, load forecast, fuel mix, renewable and carbon-free shares, estimated CO2 intensity) and a carbon intensity index. Uses MISO's free public real-time data APIs; no account or key needed. Polls every 15 minutes by default."
+        "description": "Adds MISO grid conditions (demand, load forecast, fuel mix, renewable and carbon-free shares, estimated CO2 intensity) and a carbon intensity index from MISO's free public feeds. Polls every 15 minutes by default.\n\nOptional: paste an API key for MISO's Emissions API (run by Singularity Energy) to get measured CO2 numbers for your own area instead of MISO-wide estimates. Create a free account at miso.singularity.energy, then copy the key from {account_url}. Leave it empty to skip; you can add it later under Configure.",
+        "data": {
+          "api_key": "Emissions API key (optional)"
+        }
+      },
+      "singularity": {
+        "title": "Local emissions",
+        "description": "Your home is in {county} County, {state}: local resource zone {lrz}, balancing area {lba} ({lba_code}), {subregion} subregion.\n\nWith a key, CO2 intensity, the carbon-free and renewable shares and the Carbon Intensity Index all come from the Emissions API for the **local area** you choose here.",
+        "data": {
+          "local_level": "Local area"
+        },
+        "data_description": {
+          "local_level": "Hourly consumed (location-based) emissions, published about 90 minutes late. If the chosen area has no recent data, setup says so and you can pick another."
+        }
       }
     },
     "error": {
-      "cannot_connect": "Could not reach MISO's FuelMix feed. Check the internet connection and try again."
+      "cannot_connect": "Could not reach MISO's FuelMix feed. Check the internet connection and try again.",
+      "invalid_auth": "The Emissions API rejected this key. Copy it again from miso.singularity.energy/account.",
+      "cannot_connect_singularity": "Could not reach MISO's Emissions API. Try again in a few minutes.",
+      "outside_miso": "Your home location (Settings → System → General) isn't in a MISO area the Emissions API covers.",
+      "level_unavailable": "The Emissions API has no recent data for this area. Pick another level."
     },
     "abort": {
       "single_instance_allowed": "MISO Stats is already configured. Change its settings under Configure."
@@ -17,22 +34,57 @@
     "step": {
       "init": {
         "title": "MISO Stats options",
-        "description": "Polling interval, the emission factors behind the CO2 estimate and the Carbon Intensity Index settings.",
+        "description": "Polling interval, the emission factors behind the CO2 estimate, the Carbon Intensity Index settings, and the optional Emissions API key (from {account_url}).",
         "data": {
           "scan_interval": "Update interval",
           "coal_emission_factor": "Coal emission factor",
           "gas_emission_factor": "Natural gas emission factor",
           "low_carbon_index_threshold": "Low carbon index threshold",
-          "index_days": "Carbon Intensity Index window"
+          "index_days": "Carbon Intensity Index window",
+          "api_key": "Emissions API key (optional)"
         },
         "data_description": {
           "scan_interval": "How often to poll MISO (5-60 minutes). MISO updates its feeds every 5 minutes.",
           "coal_emission_factor": "Grams of CO2 per kWh from coal plants (about 1,000 for the US coal fleet).",
           "gas_emission_factor": "Grams of CO2 per kWh from natural gas plants (about 400 for a combined-cycle-heavy fleet).",
           "low_carbon_index_threshold": "Low Carbon Energy Now is on when the Carbon Intensity Index is at or below this (0 = the cleanest hour of recent days, 100 = the dirtiest).",
-          "index_days": "Days of history (7-30) whose cleanest and dirtiest hour set the Carbon Intensity Index's 0 and 100."
+          "index_days": "Days of history (7-30) whose cleanest and dirtiest hour set the Carbon Intensity Index's 0 and 100.",
+          "api_key": "With a key, the carbon numbers come from the Emissions API for your area. Clear it to go back to MISO-wide estimates."
+        }
+      },
+      "singularity": {
+        "title": "Local emissions",
+        "description": "Your home is in {county} County, {state}: local resource zone {lrz}, balancing area {lba} ({lba_code}), {subregion} subregion.\n\nWith a key, CO2 intensity, the carbon-free and renewable shares and the Carbon Intensity Index all come from the Emissions API for the **local area** you choose here.",
+        "data": {
+          "local_level": "Local area"
+        },
+        "data_description": {
+          "local_level": "Hourly consumed (location-based) emissions, published about 90 minutes late. If the chosen area has no recent data, setup says so and you can pick another."
         }
       }
+    },
+    "error": {
+      "invalid_auth": "The Emissions API rejected this key. Copy it again from miso.singularity.energy/account.",
+      "cannot_connect_singularity": "Could not reach MISO's Emissions API. Try again in a few minutes.",
+      "outside_miso": "Your home location (Settings → System → General) isn't in a MISO area the Emissions API covers.",
+      "level_unavailable": "The Emissions API has no recent data for this area. Pick another level."
+    }
+  },
+  "selector": {
+    "local_level": {
+      "options": {
+        "lba": "Local balancing area (utility)",
+        "lrz": "Local resource zone",
+        "state": "State",
+        "subregion": "MISO subregion",
+        "miso": "All of MISO"
+      }
+    }
+  },
+  "issues": {
+    "invalid_api_key": {
+      "title": "MISO Emissions API key rejected",
+      "description": "MISO's Emissions API (run by Singularity Energy) no longer accepts the key MISO Stats uses, so CO2 intensity, the carbon-free and renewable shares and the index are unavailable. Copy the key again from miso.singularity.energy/account and paste it under Settings → Devices & services → MISO Stats → Configure. This message clears itself once a request succeeds."
     }
   },
   "entity": {

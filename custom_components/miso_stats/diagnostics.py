@@ -1,13 +1,17 @@
-"""Diagnostics for MISO Stats (public data only; nothing to redact)."""
+"""Diagnostics for MISO Stats (public data; the Emissions API key is redacted)."""
 
 from __future__ import annotations
 
 import json
 from typing import Any
 
+from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.core import HomeAssistant
 
+from .const import CONF_API_KEY
 from .coordinator import MisoConfigEntry
+
+TO_REDACT = {CONF_API_KEY}
 
 
 def _json_or_text(text: str | None) -> Any:
@@ -25,7 +29,7 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: MisoCon
     data = coordinator.data
     history = coordinator.history.days
     return {
-        "options": dict(entry.options),
+        "options": async_redact_data(dict(entry.options), TO_REDACT),
         "last_update_success": coordinator.last_update_success,
         "derived": None
         if data is None
@@ -52,6 +56,30 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: MisoCon
             "days": sorted(d.isoformat() for d in history),
             "hours_per_day": {d.isoformat(): len(h) for d, h in sorted(history.items())},
             "last_error": coordinator.history_error,
+        },
+        "emissions_api": {
+            "configured": coordinator.singularity is not None,
+            "carbon_source": None if data is None else data.source,
+            "miso_wide_estimate": None if data is None else data.estimate,
+            "local_level": coordinator.local_level,
+            "location": coordinator.location.as_dict(),
+            "local_history": None
+            if coordinator.local_history is None
+            else {
+                "area": coordinator.local_history.area,
+                "hours": len(coordinator.local_history.hours),
+                "first": min(coordinator.local_history.hours).isoformat() if coordinator.local_history.hours else None,
+                "backfill_error": coordinator.backfill_error,
+            },
+            "local": None
+            if data is None or data.local is None
+            else {
+                "hour": data.local.timestamp.isoformat(),
+                "area": f"{data.local.agg_type}: {data.local.agg_id}",
+                "rate_g_per_kwh": round(data.local.rate, 1),
+                "carbon_free": data.local.carbon_free,
+                "renewables": data.local.renewables,
+            },
         },
         "raw": {name: _json_or_text(text) for name, text in coordinator.raw.items()},
     }
