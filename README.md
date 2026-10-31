@@ -10,6 +10,8 @@ The Midcontinent grid, live in Home Assistant: demand and the load forecast, the
 
 Data comes from MISO's free public [real-time data APIs](https://www.misoenergy.org/markets-and-operations/RTDataAPIs/), the same feeds behind its [market displays](https://www.misoenergy.org/markets-and-operations/real-time--market-data/markets-displays/). No account, API key or cloud service is needed.
 
+Optionally, add a free key for MISO's [Emissions API](https://miso.singularity.energy/api-docs) (run for MISO by Singularity Energy) to get **local** CO2 intensity for your state, zone, utility or county, and **marginal** CO2 intensity at a pricing node near you, every 5 minutes. See [Local and marginal emissions](#local-and-marginal-emissions-optional).
+
 > **Unofficial.** This project is not affiliated with or endorsed by MISO (Midcontinent Independent System Operator). The feeds are public but lightly documented and can change without notice. A daily CI job checks the live feeds so breakage shows up quickly.
 
 ## Contents
@@ -18,6 +20,7 @@ Data comes from MISO's free public [real-time data APIs](https://www.misoenergy.
 - [Entities](#entities)
 - [CO2 intensity, estimated](#co2-intensity-estimated)
 - [Carbon Intensity Index](#carbon-intensity-index)
+- [Local and marginal emissions (optional)](#local-and-marginal-emissions-optional)
 - [Regional detail](#regional-detail)
 - [Examples](#examples)
 - [Data and update frequency](#data-and-update-frequency)
@@ -46,7 +49,7 @@ Copy `custom_components/miso_stats` from the [latest release](https://github.com
 
 [![Open your Home Assistant instance and start setting up MISO Stats.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=miso_stats)
 
-**Settings → Devices & services → Add integration → MISO Stats → Submit.** There is nothing to enter. Setup checks that MISO's feed answers and creates one **MISO** device.
+**Settings → Devices & services → Add integration → MISO Stats → Submit.** The only field, an Emissions API key, is optional; leave it empty for the free feeds alone (see [Local and marginal emissions](#local-and-marginal-emissions-optional)). Setup checks that MISO's feed answers and creates one **MISO** device.
 
 ### Options
 **Settings → Devices & services → MISO Stats → Configure.** Saving reloads the integration.
@@ -58,6 +61,7 @@ Copy `custom_components/miso_stats` from the [latest release](https://github.com
 | Natural gas emission factor | 400 g/kWh | CO2 per kWh from natural gas. |
 | Low carbon index threshold | 25 % | **Low Carbon Energy Now** turns on when the [Carbon Intensity Index](#carbon-intensity-index) is at or below this. |
 | Carbon Intensity Index window | 14 days | Days of history (7–30) whose cleanest and dirtiest hour set the index's 0 and 100. |
+| Emissions API key | empty | Optional. Adds the local and marginal emissions sensors; a second screen picks the area and pricing node. Clear it to remove them. |
 
 ## Entities
 
@@ -132,9 +136,29 @@ MISO also posts a daily state-estimator fuel mix report that goes back years, bu
 
 **Low Carbon Energy Now** (`binary_sensor.miso_low_carbon_energy_now`, off by default) is on when the index is at or below the *Low carbon index threshold* (25 by default): "the grid is in its cleanest quarter for recent days". It's unknown until the index is available.
 
+## Local and marginal emissions (optional)
+
+MISO's [Emissions Dashboard](https://miso.singularity.energy) is built and run for MISO by **Singularity Energy**, an independent company. Its [API](https://miso.singularity.energy/api-docs) needs a free account and key, and adds what MISO's keyless feeds lack: emissions for *your* part of MISO.
+
+**Get a key:** sign up with the **Login** button at [miso.singularity.energy](https://miso.singularity.energy), confirm your email, then copy the key from [miso.singularity.energy/account](https://miso.singularity.energy/account). Paste it into the setup form or **Configure**.
+
+**Choose your area and node:** after the key is checked, a second screen shows the county, state, local resource zone and balancing area your home is in. It finds these from Home Assistant's home location, rounded to about 1 km before it's sent. Pick:
+- **Local area**: the level for local emissions. State (the default) and subregion are current hourly; zone, balancing-area and county figures may lag, and setup tells you if an area has no recent data.
+- **Pricing node** (optional): a MISO commercial pricing node near you for marginal emissions. Type to search the list. Leave it empty to skip.
+
+| Entity | Unit | Notes |
+|---|---|---|
+| `sensor.miso_local_co2_intensity` | g/kWh | **Consumed** (location-based) CO2e intensity of electricity used in your area, from Singularity's CarbonFlow tracing of actual power flows. Hourly, published about 90 minutes late. Attributes: `area_level`, `area`, `hour`, `fossil_rate` (the fossil-fuelled share alone). |
+| `sensor.miso_local_carbon_free` | % | Carbon-free share of the energy consumed in your area that hour. `fuel_mix` attribute (not recorded). |
+| `sensor.miso_marginal_co2_intensity` | g/kWh | **Locational marginal emissions** (LME) at your pricing node: the CO2e from the plants that would answer one more MWh of demand there, every 5 minutes, from MISO's real-time market results. `marginal_fuels` attribute (MW of each fuel redispatched per MW of extra load; not recorded). Only with a pricing node. |
+
+**Which to use:** the local intensity is the best "how clean is my electricity" number (average, like `sensor.miso_co2_intensity` but for your area and measured rather than estimated). The marginal intensity is the better signal for *shifting* load, because it shows what extra use right now actually causes; it can jump between intervals and is often far higher than the average when gas or coal is on the margin.
+
+**Requests:** marginal emissions on every poll (2 requests) and local emissions once an hour. At the default 15-minute interval that's about 6,500 requests a month, well within the API's 100,000 a month and 5 a second. Your key is stored in Home Assistant, never logged, and redacted from diagnostics. If it stops working, a **Repairs** notice explains how to replace it; the free sensors keep working meanwhile.
+
 ## Regional detail
 
-MISO's real-time fuel mix and demand cover its whole footprint; MISO publishes no live per-state or per-utility mix. For local marginal emissions (WattTime regions such as `MISO_DETROIT`), use a WattTime integration alongside this one. The two answer different questions: this one shows the footprint's average mix, WattTime which plant answers extra load near you.
+MISO's real-time fuel mix and demand from its keyless feeds cover the whole footprint. For your own area, add an Emissions API key ([above](#local-and-marginal-emissions-optional)). WattTime's marginal-emissions regions (such as `MISO_DETROIT`) are a separate, modelled alternative; this integration's marginal sensor comes from MISO's own market results instead.
 
 ## Examples
 
@@ -166,6 +190,8 @@ Tip: values update every poll (15 min by default) and can bounce around a thresh
 | Fuel mix | `https://public-api.misoenergy.org/api/FuelMix` | Fuel MW, CO2 estimate, shares | Every poll |
 | Load | `https://public-api.misoenergy.org/api/RealTimeTotalLoad` | Demand, peak, load forecast | Every poll |
 | Yesterday's fuel mix | `https://public-api.misoenergy.org/api/FuelMix/Yesterday` | Carbon Intensity Index history | Once a day (about 250 KB) |
+| Local emissions *(key)* | `https://api.miso.singularity.energy/v1/events/consumed` | Local CO2 intensity, local carbon-free | Once an hour |
+| Marginal emissions *(key)* | `https://api.miso.singularity.energy/v1/events/lme/by-node` and `lmf/by-node` | Marginal CO2 intensity | Every poll |
 
 - The two live feeds are small (about 10 KB together). The default 15-minute interval is frequent enough for home automations and gentle on a free public service; lower it to 5 minutes in Options if you want every interval. Requests time out after 30 s.
 - **Time zone:** MISO works in Eastern Standard Time all year, with no daylight saving. Attributes carry the offset (`-05:00`), and Home Assistant shows them in your local time.

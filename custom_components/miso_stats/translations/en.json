@@ -3,11 +3,31 @@
     "step": {
       "user": {
         "title": "MISO Stats",
-        "description": "Adds MISO grid conditions (demand, load forecast, fuel mix, renewable and carbon-free shares, estimated CO2 intensity) and a carbon intensity index. Uses MISO's free public real-time data APIs; no account or key needed. Polls every 15 minutes by default."
+        "description": "Adds MISO grid conditions (demand, load forecast, fuel mix, renewable and carbon-free shares, estimated CO2 intensity) and a carbon intensity index from MISO's free public feeds. Polls every 15 minutes by default.\n\nOptional: paste an API key for MISO's Emissions API (run by Singularity Energy) to add local and marginal CO2 sensors. Create a free account at miso.singularity.energy, then copy the key from {account_url}. Leave it empty to skip; you can add it later under Configure.",
+        "data": {
+          "api_key": "Emissions API key (optional)"
+        }
+      },
+      "singularity": {
+        "title": "Local and marginal emissions",
+        "description": "Your home is in {county} County, {state}: local resource zone {lrz}, balancing area {lba}, {subregion} subregion.\n\nChoose the area for **Local CO2 intensity**, and optionally a commercial pricing node for **Marginal CO2 intensity**.",
+        "data": {
+          "local_level": "Local area",
+          "cp_node": "Pricing node (optional)"
+        },
+        "data_description": {
+          "local_level": "Consumed (location-based) emissions are hourly and published about 90 minutes late. State and subregion are always current; zone and balancing-area figures may lag.",
+          "cp_node": "Locational marginal emissions every 5 minutes at this MISO pricing node. Pick one near you (type to search), or leave empty to skip."
+        }
       }
     },
     "error": {
-      "cannot_connect": "Could not reach MISO's FuelMix feed. Check the internet connection and try again."
+      "cannot_connect": "Could not reach MISO's FuelMix feed. Check the internet connection and try again.",
+      "invalid_auth": "The Emissions API rejected this key. Copy it again from miso.singularity.energy/account.",
+      "cannot_connect_singularity": "Could not reach MISO's Emissions API. Try again in a few minutes.",
+      "outside_miso": "Your home location (Settings → System → General) isn't in a MISO area the Emissions API covers.",
+      "level_unavailable": "The Emissions API has no recent data for this area. Pick another level.",
+      "unknown_node": "No recent marginal emissions for this pricing node. Check the name, or leave it empty."
     },
     "abort": {
       "single_instance_allowed": "MISO Stats is already configured. Change its settings under Configure."
@@ -17,22 +37,61 @@
     "step": {
       "init": {
         "title": "MISO Stats options",
-        "description": "Polling interval, the emission factors behind the CO2 estimate and the Carbon Intensity Index settings.",
+        "description": "Polling interval, the emission factors behind the CO2 estimate, the Carbon Intensity Index settings, and the optional Emissions API key (from {account_url}).",
         "data": {
           "scan_interval": "Update interval",
           "coal_emission_factor": "Coal emission factor",
           "gas_emission_factor": "Natural gas emission factor",
           "low_carbon_index_threshold": "Low carbon index threshold",
-          "index_days": "Carbon Intensity Index window"
+          "index_days": "Carbon Intensity Index window",
+          "api_key": "Emissions API key (optional)"
         },
         "data_description": {
           "scan_interval": "How often to poll MISO (5-60 minutes). MISO updates its feeds every 5 minutes.",
           "coal_emission_factor": "Grams of CO2 per kWh from coal plants (about 1,000 for the US coal fleet).",
           "gas_emission_factor": "Grams of CO2 per kWh from natural gas plants (about 400 for a combined-cycle-heavy fleet).",
           "low_carbon_index_threshold": "Low Carbon Energy Now is on when the Carbon Intensity Index is at or below this (0 = the cleanest hour of recent days, 100 = the dirtiest).",
-          "index_days": "Days of history (7-30) whose cleanest and dirtiest hour set the Carbon Intensity Index's 0 and 100."
+          "index_days": "Days of history (7-30) whose cleanest and dirtiest hour set the Carbon Intensity Index's 0 and 100.",
+          "api_key": "Adds Local CO2 intensity, Local carbon-free and (with a pricing node) Marginal CO2 intensity. Clear it to remove them."
+        }
+      },
+      "singularity": {
+        "title": "Local and marginal emissions",
+        "description": "Your home is in {county} County, {state}: local resource zone {lrz}, balancing area {lba}, {subregion} subregion.\n\nChoose the area for **Local CO2 intensity**, and optionally a commercial pricing node for **Marginal CO2 intensity**.",
+        "data": {
+          "local_level": "Local area",
+          "cp_node": "Pricing node (optional)"
+        },
+        "data_description": {
+          "local_level": "Consumed (location-based) emissions are hourly and published about 90 minutes late. State and subregion are always current; zone and balancing-area figures may lag.",
+          "cp_node": "Locational marginal emissions every 5 minutes at this MISO pricing node. Pick one near you (type to search), or leave empty to skip."
         }
       }
+    },
+    "error": {
+      "invalid_auth": "The Emissions API rejected this key. Copy it again from miso.singularity.energy/account.",
+      "cannot_connect_singularity": "Could not reach MISO's Emissions API. Try again in a few minutes.",
+      "outside_miso": "Your home location (Settings → System → General) isn't in a MISO area the Emissions API covers.",
+      "level_unavailable": "The Emissions API has no recent data for this area. Pick another level.",
+      "unknown_node": "No recent marginal emissions for this pricing node. Check the name, or leave it empty."
+    }
+  },
+  "selector": {
+    "local_level": {
+      "options": {
+        "county": "County",
+        "lba": "Local balancing area (utility)",
+        "lrz": "Local resource zone",
+        "state": "State",
+        "subregion": "MISO subregion",
+        "miso": "All of MISO"
+      }
+    }
+  },
+  "issues": {
+    "invalid_api_key": {
+      "title": "MISO Emissions API key rejected",
+      "description": "MISO's Emissions API (run by Singularity Energy) no longer accepts the key MISO Stats uses, so the Local and Marginal CO2 sensors are unavailable. Copy the key again from miso.singularity.energy/account and paste it under Settings → Devices & services → MISO Stats → Configure. This message clears itself once a request succeeds."
     }
   },
   "entity": {
@@ -49,6 +108,9 @@
       "todays_peak_demand": { "name": "Today's peak demand" },
       "forecast_peak_demand_today": { "name": "Forecast peak demand today" },
       "load_forecast": { "name": "Load forecast" },
+      "local_co2_intensity": { "name": "Local CO2 intensity" },
+      "local_carbon_free": { "name": "Local carbon-free" },
+      "marginal_co2_intensity": { "name": "Marginal CO2 intensity" },
       "generation": { "name": "Generation" },
       "coal": { "name": "Coal" },
       "natural_gas": { "name": "Natural gas" },

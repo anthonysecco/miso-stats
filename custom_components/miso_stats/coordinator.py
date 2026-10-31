@@ -9,6 +9,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
@@ -26,15 +27,23 @@ from .api import (
 )
 from .const import (
     CARBON_FREE_FUELS,
+    CONF_API_KEY,
     CONF_COAL_FACTOR,
+    CONF_CP_NODE,
     CONF_GAS_FACTOR,
     CONF_INDEX_DAYS,
+    CONF_LOCAL_LEVEL,
+    CONF_LOCATION,
     CONF_LOW_CARBON_INDEX,
     CONF_SCAN_INTERVAL,
+    DEFAULT_LOCAL_LEVEL,
     DEFAULT_OPTIONS,
     DOMAIN,
     HISTORY_RETRY_HOURS,
+    LOCAL_REFRESH,
+    LOCAL_STALE_AFTER,
     LOGGER,
+    MARGINAL_STALE_AFTER,
     MAX_INDEX_DAYS,
     MIN_INDEX_DAYS,
     RENEWABLE_FUELS,
@@ -42,6 +51,18 @@ from .const import (
     scan_interval,
 )
 from .history import IndexRange, MixHistory, co2_index
+from .singularity import (
+    LocalEmissions,
+    Location,
+    Marginal,
+    SingularityAuthError,
+    SingularityClient,
+    SingularityError,
+    marginal_from,
+    parse_consumed,
+)
+
+ISSUE_INVALID_KEY = "invalid_api_key"
 
 type MisoConfigEntry = ConfigEntry[MisoCoordinator]
 
@@ -62,6 +83,9 @@ class MisoData:
     co2_index: int | None = None
     index_range: IndexRange | None = None
     errors: dict[str, str] = field(default_factory=dict)
+    # Optional, from MISO's Emissions API (Singularity) when an API key is set
+    local: LocalEmissions | None = None
+    marginal: Marginal | None = None
 
 
 def options_with_defaults(options: dict[str, Any]) -> dict[str, Any]:
@@ -108,6 +132,11 @@ def _fresh(previous: Load | None, now: datetime) -> Load | None:
     return previous
 
 
+def has_api_key(options: dict[str, Any]) -> bool:
+    """Whether the optional Emissions API (Singularity) is configured."""
+    return bool(str(options.get(CONF_API_KEY) or "").strip())
+
+
 class MisoCoordinator(DataUpdateCoordinator[MisoData]):
     """Fetches FuelMix and RealTimeTotalLoad every poll; yesterday's mix once a day."""
 
@@ -129,6 +158,18 @@ class MisoCoordinator(DataUpdateCoordinator[MisoData]):
         self._history_task: asyncio.Task[None] | None = None
         self._history_tried: datetime | None = None
         self.history_error: str | None = None
+        # Optional Emissions API (Singularity)
+        options = options_with_defaults(dict(entry.options))
+        self.singularity: SingularityClient | None = None
+        if has_api_key(options):
+            self.singularity = SingularityClient(async_get_clientsession(hass), str(options[CONF_API_KEY]).strip())
+            self.raw.update(consumed=None, lme=None, lmf=None)
+        self.local_level: str = str(options.get(CONF_LOCAL_LEVEL) or DEFAULT_LOCAL_LEVEL)
+        self.location = Location.from_dict(options.get(CONF_LOCATION))
+        self.cp_node: str | None = str(options.get(CONF_CP_NODE) or "").strip() or None
+        self._local: LocalEmissions | None = None
+        self._local_fetched: datetime | None = None
+        self._marginal: Marginal | None = None
 
     @property
     def options(self) -> dict[str, Any]:
@@ -181,8 +222,48 @@ class MisoCoordinator(DataUpdateCoordinator[MisoData]):
                 self._window(dt_util.now()),
             )
             data.errors = self.data.errors
+            data.local, data.marginal = self.data.local, self.data.marginal
             self.data = data
             self.async_update_listeners()
+
+    async def _async_update_singularity(self, now: datetime, errors: dict[str, str]) -> None:
+        """Consumed emissions once an hour and marginal emissions every poll, from the Emissions API.
+
+        Failures never fail the whole update: the affected sensors keep their last value while it's
+        recent. A rejected key raises a Repairs issue until a call succeeds again.
+        """
+        client = self.singularity
+        if client is None:
+            return
+        try:
+            if self._local_fetched is None or now - self._local_fetched >= LOCAL_REFRESH:
+                text = await client.consumed_text(self.local_level, self.location.agg_id(self.local_level), now)
+                self.raw["consumed"] = text
+                self._local = parse_consumed(text) or self._local
+                self._local_fetched = now
+            if self.cp_node:
+                lme_text, lmf_text = await client.marginal_texts(self.cp_node, now)
+                self.raw["lme"], self.raw["lmf"] = lme_text, lmf_text
+                self._marginal = marginal_from(lme_text, lmf_text, self.cp_node) or self._marginal
+        except SingularityAuthError as err:
+            errors["singularity"] = str(err)
+            ir.async_create_issue(
+                self.hass,
+                DOMAIN,
+                ISSUE_INVALID_KEY,
+                is_fixable=False,
+                severity=ir.IssueSeverity.ERROR,
+                translation_key=ISSUE_INVALID_KEY,
+            )
+        except SingularityError as err:
+            errors["singularity"] = str(err)
+            LOGGER.debug("MISO Emissions API failed this poll: %s", err)
+        else:
+            ir.async_delete_issue(self.hass, DOMAIN, ISSUE_INVALID_KEY)
+        if self._local is not None and now - self._local.timestamp > LOCAL_STALE_AFTER:
+            self._local = None
+        if self._marginal is not None and now - self._marginal.timestamp > MARGINAL_STALE_AFTER:
+            self._marginal = None
 
     async def _async_update_data(self) -> MisoData:
         now = dt_util.now()
@@ -207,7 +288,9 @@ class MisoCoordinator(DataUpdateCoordinator[MisoData]):
         # Start the history download before computing this poll's result: background tasks start
         # eagerly, so a download that completes without waiting must be in the window used here,
         # or this poll's result would overwrite the index it just produced.
+        await self._async_update_singularity(now, errors)
         self._maybe_fetch_history(now)
         data = derive(fuel_mix, self._load, dict(self.config_entry.options), self._window(now))
         data.errors = errors
+        data.local, data.marginal = self._local, self._marginal
         return data

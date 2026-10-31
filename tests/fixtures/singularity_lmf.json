@@ -1,0 +1,4 @@
+{"data": [
+ {"timestamp": "2026-10-31T15:20:00.000Z", "cp_node": "AECI.ALTW", "net_redispatch_mw_per_mw": {"natural_gas": 0.71, "coal": 0.33, "wind": -0.04}},
+ {"timestamp": "2026-10-31T15:25:00.000Z", "cp_node": "AECI.ALTW", "net_redispatch_mw_per_mw": {"natural_gas": 0.92, "coal": 0.11, "wind": -0.03}}
+]}

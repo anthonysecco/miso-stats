@@ -1,0 +1,5 @@
+{"data": [
+ {"timestamp": "2026-10-31T15:15:00.000Z", "cp_node": "AECI.ALTW", "rate_co2e_lbs_per_mwh": 1650.4},
+ {"timestamp": "2026-10-31T15:20:00.000Z", "cp_node": "AECI.ALTW", "rate_co2e_lbs_per_mwh": 1702.3},
+ {"timestamp": "2026-10-31T15:25:00.000Z", "cp_node": "AECI.ALTW", "rate_co2e_lbs_per_mwh": 1688.0}
+]}

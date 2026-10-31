@@ -18,7 +18,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import FUEL_KEYS
-from .coordinator import MisoConfigEntry, MisoData
+from .coordinator import MisoConfigEntry, MisoCoordinator, MisoData
 from .entity import MisoEntity
 
 PARALLEL_UPDATES = 0
@@ -36,6 +36,7 @@ class MisoSensorDescription(SensorEntityDescription):
     value_fn: Callable[[MisoData], StateType]
     attrs_fn: Callable[[MisoData], dict[str, Any]] | None = None
     available_fn: Callable[[MisoData], bool] = lambda _: True
+    exists_fn: Callable[[MisoCoordinator], bool] = lambda _: True  # whether to create the entity at all
 
 
 def _iso(when: datetime | None) -> str | None:
@@ -153,6 +154,45 @@ def _intensity_attrs(d: MisoData) -> dict[str, Any]:
     return {"coal_factor": d.coal_factor, "gas_factor": d.gas_factor, "estimated": True}
 
 
+def _local_attrs(d: MisoData) -> dict[str, Any]:
+    local = d.local
+    if local is None:
+        return {}
+    return {
+        "area_level": local.agg_type,
+        "area": local.agg_id,
+        "hour": local.timestamp.isoformat(),
+        "fossil_rate": None if local.non_cfe_rate is None else round(local.non_cfe_rate, 1),
+    }
+
+
+def _local_mix_attrs(d: MisoData) -> dict[str, Any]:
+    local = d.local
+    if local is None:
+        return {}
+    return {
+        "area_level": local.agg_type,
+        "area": local.agg_id,
+        "hour": local.timestamp.isoformat(),
+        "fuel_mix": {k: v for k, v in local.fuel_mix.items() if k != "non_cfe"},
+    }
+
+
+def _marginal_attrs(d: MisoData) -> dict[str, Any]:
+    marginal = d.marginal
+    if marginal is None:
+        return {}
+    return {
+        "cp_node": marginal.cp_node,
+        "interval": marginal.timestamp.isoformat(),
+        "marginal_fuels": marginal.fuels,
+    }
+
+
+def _has_key(c: MisoCoordinator) -> bool:
+    return c.singularity is not None
+
+
 def _index_attrs(d: MisoData) -> dict[str, Any]:
     r = d.index_range
     if r is None:
@@ -223,6 +263,36 @@ SENSORS: tuple[MisoSensorDescription, ...] = (
         available_fn=_has_load,
         entity_registry_enabled_default=False,
     ),
+    # --- optional: MISO's Emissions API (Singularity), created only with an API key ---
+    MisoSensorDescription(
+        key="local_co2_intensity",
+        translation_key="local_co2_intensity",
+        native_unit_of_measurement=UNIT_CO2_INTENSITY,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=0,
+        value_fn=lambda d: round(d.local.rate, 1) if d.local else None,
+        attrs_fn=_local_attrs,
+        available_fn=lambda d: d.local is not None,
+        exists_fn=_has_key,
+    ),
+    _pct(
+        "local_carbon_free",
+        lambda d: d.local.carbon_free if d.local else None,
+        attrs_fn=_local_mix_attrs,
+        available_fn=lambda d: d.local is not None and d.local.carbon_free is not None,
+        exists_fn=_has_key,
+    ),
+    MisoSensorDescription(
+        key="marginal_co2_intensity",
+        translation_key="marginal_co2_intensity",
+        native_unit_of_measurement=UNIT_CO2_INTENSITY,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=0,
+        value_fn=lambda d: round(d.marginal.rate, 1) if d.marginal else None,
+        attrs_fn=_marginal_attrs,
+        available_fn=lambda d: d.marginal is not None,
+        exists_fn=lambda c: c.singularity is not None and c.cp_node is not None,
+    ),
     # --- supply mix (FuelMix), off by default ---
     _mw(
         "generation",
@@ -250,14 +320,16 @@ async def async_setup_entry(
 ) -> None:
     """Add the sensors."""
     coordinator = entry.runtime_data
-    async_add_entities(MisoSensor(coordinator, description) for description in SENSORS)
+    async_add_entities(
+        MisoSensor(coordinator, description) for description in SENSORS if description.exists_fn(coordinator)
+    )
 
 
 class MisoSensor(MisoEntity, SensorEntity):
     """A MISO value."""
 
     entity_description: MisoSensorDescription
-    _unrecorded_attributes = frozenset({"forecast"})
+    _unrecorded_attributes = frozenset({"forecast", "fuel_mix", "marginal_fuels"})
 
     @property
     def available(self) -> bool:

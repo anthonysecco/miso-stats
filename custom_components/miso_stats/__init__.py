@@ -4,23 +4,34 @@ from __future__ import annotations
 
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import entity_registry as er, issue_registry as ir
 
 from .const import DOMAIN, LOGGER
-from .coordinator import MisoConfigEntry, MisoCoordinator
+from .coordinator import ISSUE_INVALID_KEY, MisoConfigEntry, MisoCoordinator
 
 PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.SENSOR]
 
 # Entities pre-release builds created that this version no longer provides.
 RETIRED_ENTITIES: tuple[tuple[Platform, str], ...] = ((Platform.SENSOR, "hub_price"),)
+# Entities that exist only with an Emissions API key (the last one also needs a pricing node).
+LOCAL_ENTITIES = ("local_co2_intensity", "local_carbon_free")
+MARGINAL_ENTITIES = ("marginal_co2_intensity",)
 
 
-def _remove_retired_entities(hass: HomeAssistant, entry: MisoConfigEntry) -> None:
+def _remove_unused_entities(hass: HomeAssistant, entry: MisoConfigEntry, coordinator: MisoCoordinator) -> None:
+    """Drop retired entities, and the Emissions API ones once the key or node is removed."""
+    unused = list(RETIRED_ENTITIES)
+    if coordinator.singularity is None:
+        unused += [(Platform.SENSOR, key) for key in LOCAL_ENTITIES]
+    if coordinator.singularity is None or coordinator.cp_node is None:
+        unused += [(Platform.SENSOR, key) for key in MARGINAL_ENTITIES]
     registry = er.async_get(hass)
-    for platform, key in RETIRED_ENTITIES:
+    for platform, key in unused:
         if entity_id := registry.async_get_entity_id(platform, DOMAIN, f"{entry.entry_id}_{key}"):
-            LOGGER.info("Removing retired MISO Stats entity %s", entity_id)
+            LOGGER.info("Removing unused MISO Stats entity %s", entity_id)
             registry.async_remove(entity_id)
+    if coordinator.singularity is None:
+        ir.async_delete_issue(hass, DOMAIN, ISSUE_INVALID_KEY)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: MisoConfigEntry) -> bool:
@@ -28,7 +39,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: MisoConfigEntry) -> bool
     coordinator = MisoCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
-    _remove_retired_entities(hass, entry)
+    _remove_unused_entities(hass, entry, coordinator)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
