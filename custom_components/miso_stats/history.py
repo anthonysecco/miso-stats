@@ -22,15 +22,18 @@ from homeassistant.helpers.storage import Store
 from .api import DayMix, co2_intensity
 from .const import (
     DOMAIN,
+    HISTORY_MIN_HOURS,
     HISTORY_READY_MINUTE,
     INDEX_MIN_HISTORY_DAYS,
     INTENSITY_FUELS,
     MAX_INDEX_DAYS,
     MISO_TZ,
 )
+from .singularity import LocalEmissions
 
 STORAGE_VERSION = 1
 STORAGE_KEY = f"{DOMAIN}.fuel_mix_history"
+LOCAL_STORAGE_KEY = f"{DOMAIN}.local_history"
 
 
 @dataclass(slots=True, frozen=True)
@@ -120,4 +123,73 @@ class MixHistory:
         high = max(hours, key=lambda x: x[0])
         return IndexRange(
             min_g=round(low[0], 1), min_at=low[1], max_g=round(high[0], 1), max_at=high[1], days=len(days)
+        )
+
+
+class LocalHistory:
+    """Hourly consumed CO2 intensity for one area (Emissions API), behind the index when a key is set.
+
+    Back-filled from the API on first use, then extended by every hourly fetch. Switching area
+    starts over. Days are EST days, like the MISO history.
+    """
+
+    def __init__(self, hass: HomeAssistant, area: str) -> None:
+        """Bind to HA storage for `area` (e.g. "state:Michigan"); call async_load before use."""
+        self._store: Store[dict[str, Any]] = Store(hass, STORAGE_VERSION, LOCAL_STORAGE_KEY)
+        self.area = area
+        self.hours: dict[datetime, float] = {}  # UTC hour start -> g CO2e/kWh
+
+    async def async_load(self) -> None:
+        """Read stored hours for this area; anything else (or damage) means a fresh back-fill."""
+        data = await self._store.async_load() or {}
+        if data.get("area") != self.area:
+            return
+        for key, value in (data.get("hours") or {}).items():
+            try:
+                self.hours[datetime.fromisoformat(key)] = float(value)
+            except (TypeError, ValueError):
+                continue
+
+    async def async_add(self, events: list[LocalEmissions], now: datetime) -> int:
+        """Store hours not seen before (or revised); drop hours too old for any window. Returns how many changed."""
+        changed = 0
+        for event in events:
+            if self.hours.get(event.timestamp) != event.rate:
+                self.hours[event.timestamp] = event.rate
+                changed += 1
+        oldest = now - timedelta(days=MAX_INDEX_DAYS + 2)
+        for stale in [t for t in self.hours if t < oldest]:
+            del self.hours[stale]
+        if changed:
+            await self._store.async_save(
+                {"area": self.area, "hours": {t.isoformat(): v for t, v in sorted(self.hours.items())}}
+            )
+        return changed
+
+    def needs_backfill(self, now: datetime, window_days: int) -> bool:
+        """Whether the window's first day is missing (stored hours start later, or nothing is stored)."""
+        first_day = datetime.combine(now.astimezone(MISO_TZ).date() - timedelta(days=window_days), time(), MISO_TZ)
+        return not self.hours or min(self.hours) > first_day + timedelta(hours=1)
+
+    def window(self, now: datetime, window_days: int) -> IndexRange | None:
+        """Cleanest and dirtiest hour over the last `window_days` complete EST days (None until enough days)."""
+        today = now.astimezone(MISO_TZ).date()
+        first = today - timedelta(days=window_days)
+        by_day: dict[date, list[tuple[float, datetime]]] = {}
+        for stamp, rate in self.hours.items():
+            day = stamp.astimezone(MISO_TZ).date()
+            if first <= day < today:
+                by_day.setdefault(day, []).append((rate, stamp))
+        days = {d: hours for d, hours in by_day.items() if len(hours) >= HISTORY_MIN_HOURS}
+        if len(days) < INDEX_MIN_HISTORY_DAYS:
+            return None
+        hours = [h for day_hours in days.values() for h in day_hours]
+        low = min(hours, key=lambda x: x[0])
+        high = max(hours, key=lambda x: x[0])
+        return IndexRange(
+            min_g=round(low[0], 1),
+            min_at=low[1].astimezone(MISO_TZ),
+            max_g=round(high[0], 1),
+            max_at=high[1].astimezone(MISO_TZ),
+            days=len(days),
         )

@@ -12,9 +12,13 @@ from .coordinator import ISSUE_INVALID_KEY, MisoConfigEntry, MisoCoordinator
 PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.SENSOR]
 
 # Entities pre-release builds created that this version no longer provides.
-RETIRED_ENTITIES: tuple[tuple[Platform, str], ...] = ((Platform.SENSOR, "hub_price"),)
-# Entities that exist only with an Emissions API key (the last one also needs a pricing node).
-LOCAL_ENTITIES = ("local_co2_intensity", "local_carbon_free")
+RETIRED_ENTITIES: tuple[tuple[Platform, str], ...] = (
+    (Platform.SENSOR, "hub_price"),
+    (Platform.SENSOR, "local_co2_intensity"),  # merged into CO2 intensity when a key is set
+    (Platform.SENSOR, "local_carbon_free"),  # merged into Carbon-free when a key is set
+)
+# Entities that exist only with an Emissions API key (marginal also needs a pricing node).
+LOCAL_ENTITIES = ("co2_intensity_estimate",)
 MARGINAL_ENTITIES = ("marginal_co2_intensity",)
 
 

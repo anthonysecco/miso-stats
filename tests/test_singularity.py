@@ -15,6 +15,7 @@ from custom_components.miso_stats.singularity import (
     SingularityAuthError,
     SingularityClient,
     SingularityError,
+    SingularityForbiddenError,
     SingularityNoAreaError,
     marginal_from,
     parse_consumed,
@@ -56,6 +57,7 @@ def test_parse_consumed_latest_hour_in_g_per_kwh() -> None:
     assert local.non_cfe_rate == pytest.approx(623.98, abs=0.01)  # 1375.65 lbs/MWh
     assert local.carbon_free == 35.0  # non_cfe_percentage 0.65
     assert local.fuel_mix["nuclear"] == 23.0 and local.fuel_mix["wind"] == 2.0
+    assert local.renewables == 13.1  # wind 2.0 + solar 9.0 + hydro 0.8 + biomass 1.3
     assert 99 <= sum(v for k, v in local.fuel_mix.items() if k != "non_cfe") <= 101
 
 
@@ -133,7 +135,7 @@ async def test_client_sends_key_and_rounds_coordinates(hass: HomeAssistant, aioc
 
 @pytest.mark.parametrize(
     ("status", "error"),
-    [(401, SingularityAuthError), (403, SingularityAuthError), (429, SingularityError), (500, SingularityError)],
+    [(401, SingularityAuthError), (403, SingularityForbiddenError), (429, SingularityError), (500, SingularityError)],
 )
 async def test_client_errors(hass: HomeAssistant, aioclient_mock, status: int, error: type[Exception]) -> None:
     aioclient_mock.get(f"{SINGULARITY_API}/events/lme/by-node", status=status)

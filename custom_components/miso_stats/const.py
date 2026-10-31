@@ -54,9 +54,11 @@ CONF_LOCAL_LEVEL = "local_level"  # area level for consumed emissions
 CONF_CP_NODE = "cp_node"  # commercial pricing node for marginal emissions (optional)
 CONF_LOCATION = "location"  # area IDs looked up from the home location at setup
 
-# Consumed-emissions area levels, from the most local; "state" is the default.
-LOCAL_LEVELS = ["county", "lba", "lrz", "state", "subregion", "miso"]
-DEFAULT_LOCAL_LEVEL = "state"
+# Consumed-emissions area levels, from the most local; the local balancing area (the utility)
+# is the default. County isn't offered: MISO publishes county rates quarterly, too late for a
+# live sensor.
+LOCAL_LEVELS = ["lba", "lrz", "state", "subregion", "miso"]
+DEFAULT_LOCAL_LEVEL = "lba"
 LOCAL_REFRESH = timedelta(hours=1)  # consumed data is hourly, published about 90 minutes late
 LOCAL_STALE_AFTER = timedelta(hours=4)
 MARGINAL_STALE_AFTER = timedelta(minutes=30)

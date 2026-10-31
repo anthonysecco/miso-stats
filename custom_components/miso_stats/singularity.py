@@ -39,6 +39,10 @@ class SingularityAuthError(SingularityError):
     """The API key was rejected."""
 
 
+class SingularityForbiddenError(SingularityError):
+    """The key is valid but not allowed this request (HTTP 403), e.g. a data level it can't query."""
+
+
 class SingularityNoAreaError(SingularityError):
     """The location isn't in any MISO area the API covers."""
 
@@ -159,18 +163,28 @@ class LocalEmissions:
         non_cfe = self.fuel_mix.get("non_cfe")
         return None if non_cfe is None else round(100 - non_cfe, 1)
 
+    @property
+    def renewables(self) -> float | None:
+        """Renewable share of the energy consumed (wind, solar, hydro, biomass), %."""
+        if not self.fuel_mix:
+            return None
+        return round(sum(self.fuel_mix.get(f, 0.0) for f in RENEWABLE_CONSUMED), 1)
 
-def parse_consumed(text: str) -> LocalEmissions | None:
-    """The latest hour with a rate from events/consumed (None when the window is empty)."""
-    latest: LocalEmissions | None = None
+
+RENEWABLE_CONSUMED = ("wind", "solar", "hydro", "biomass")
+
+
+def parse_consumed_events(text: str) -> list[LocalEmissions]:
+    """Every hour with a rate from events/consumed, oldest first."""
+    hours: dict[datetime, LocalEmissions] = {}
     for event in _events(text, "consumed events"):
         stamp = _timestamp(event.get("timestamp"))
         emissions = event.get("emissions") if isinstance(event.get("emissions"), dict) else {}
         rate = _rate_g_per_kwh(emissions, "rate_co2e")
-        if stamp is None or rate is None or (latest and stamp <= latest.timestamp):
+        if stamp is None or rate is None:
             continue
         mix = event.get("fuel_mix") if isinstance(event.get("fuel_mix"), dict) else {}
-        latest = LocalEmissions(
+        hours[stamp] = LocalEmissions(
             timestamp=stamp,
             agg_type=str(event.get("agg_type") or ""),
             agg_id=event.get("agg_id"),
@@ -178,7 +192,13 @@ def parse_consumed(text: str) -> LocalEmissions | None:
             non_cfe_rate=_rate_g_per_kwh(emissions, "non_cfe_rate_co2e"),
             fuel_mix=_percentages(mix),
         )
-    return latest
+    return [hours[t] for t in sorted(hours)]
+
+
+def parse_consumed(text: str) -> LocalEmissions | None:
+    """The latest hour with a rate from events/consumed (None when the window is empty)."""
+    events = parse_consumed_events(text)
+    return events[-1] if events else None
 
 
 def _percentages(mix: Mapping[str, Any]) -> dict[str, float]:
@@ -250,16 +270,19 @@ class SingularityClient:
             async with self._session.get(
                 f"{SINGULARITY_API}{path}", params=params, headers=self._headers, timeout=self._timeout
             ) as resp:
-                if resp.status in (401, 403):
-                    raise SingularityAuthError(f"API key rejected (HTTP {resp.status})")
+                if resp.status < 400:
+                    return await resp.text(encoding="utf-8")
+                detail = f"{path} returned HTTP {resp.status}: {(await resp.text())[:200]}"
+                if resp.status == 401:
+                    raise SingularityAuthError(detail)
+                if resp.status == 403:
+                    # The key works but isn't allowed this request (a data level or endpoint).
+                    raise SingularityForbiddenError(detail)
                 if resp.status == 404 and path.startswith("/data-availability"):
                     raise SingularityNoAreaError("location lookup found no MISO area for this location")
                 if resp.status == 429:
                     raise SingularityError("rate limited by the Emissions API (HTTP 429)")
-                if resp.status >= 400:
-                    detail = (await resp.text())[:200]
-                    raise SingularityError(f"{path} returned HTTP {resp.status}: {detail}")
-                return await resp.text(encoding="utf-8")
+                raise SingularityError(detail)
         except TimeoutError as err:
             raise SingularityError(f"Timed out fetching {path}") from err
         except aiohttp.ClientError as err:
@@ -273,11 +296,11 @@ class SingularityClient:
         )
         return parse_location(text)
 
-    async def consumed_text(self, level: str, agg_id: str | None, now: datetime) -> str:
-        """Raw consumed events (emissions and fuel mix) for the last few hours."""
+    async def consumed_text(self, level: str, agg_id: str | None, now: datetime, start: datetime | None = None) -> str:
+        """Raw consumed events (emissions and fuel mix) from `start` (default: the last few hours) to `now`."""
         params = {
             "agg_type": level,
-            "start": _utc(now - CONSUMED_LOOKBACK),
+            "start": _utc(start or now - CONSUMED_LOOKBACK),
             "end": _utc(now),
             "resolution": "hourly",
             "units": "us",
@@ -302,9 +325,8 @@ class SingularityClient:
         interval = now.astimezone(UTC).replace(second=0, microsecond=0)
         interval -= timedelta(minutes=interval.minute % 5)
         for back in (15, 30, 60):
-            names = parse_nodes(
-                await self._get("/events/lme/by-timestamp", {"timestamp": _utc(interval - timedelta(minutes=back))})
-            )
+            params = {"timestamp": _utc(interval - timedelta(minutes=back)), "units": "us"}
+            names = parse_nodes(await self._get("/events/lme/by-timestamp", params))
             if names:
                 return names
         return []

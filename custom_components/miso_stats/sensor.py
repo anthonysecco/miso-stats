@@ -18,7 +18,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import FUEL_KEYS
-from .coordinator import MisoConfigEntry, MisoCoordinator, MisoData
+from .coordinator import SOURCE_MISO, SOURCE_SINGULARITY, MisoConfigEntry, MisoCoordinator, MisoData
 from .entity import MisoEntity
 
 PARALLEL_UPDATES = 0
@@ -150,32 +150,43 @@ def _forecast_attrs(d: MisoData) -> dict[str, Any]:
     }
 
 
+def _estimate_attrs(d: MisoData) -> dict[str, Any]:
+    """The MISO-wide estimate's inputs."""
+    return {"source": SOURCE_MISO, "coal_factor": d.coal_factor, "gas_factor": d.gas_factor, "estimated": True}
+
+
+def _local_area(d: MisoData) -> dict[str, Any]:
+    local = d.local
+    if local is None:
+        return {"source": SOURCE_SINGULARITY}
+    return {
+        "source": SOURCE_SINGULARITY,
+        "area_level": local.agg_type,
+        "area": local.agg_id,
+        "hour": local.timestamp.isoformat(),
+    }
+
+
 def _intensity_attrs(d: MisoData) -> dict[str, Any]:
-    return {"coal_factor": d.coal_factor, "gas_factor": d.gas_factor, "estimated": True}
+    if d.source != SOURCE_SINGULARITY:
+        return _estimate_attrs(d)
+    attrs = _local_area(d)
+    if d.local and d.local.non_cfe_rate is not None:
+        attrs["fossil_rate"] = round(d.local.non_cfe_rate, 1)
+    return attrs
 
 
-def _local_attrs(d: MisoData) -> dict[str, Any]:
-    local = d.local
-    if local is None:
-        return {}
-    return {
-        "area_level": local.agg_type,
-        "area": local.agg_id,
-        "hour": local.timestamp.isoformat(),
-        "fossil_rate": None if local.non_cfe_rate is None else round(local.non_cfe_rate, 1),
-    }
+def _share_attrs(miso_wide: Callable[[MisoData], float | None]) -> Callable[[MisoData], dict[str, Any]]:
+    def attrs(d: MisoData) -> dict[str, Any]:
+        if d.source != SOURCE_SINGULARITY:
+            return {"source": SOURCE_MISO}
+        result = _local_area(d)
+        if d.local is not None:
+            result["fuel_mix"] = {k: v for k, v in d.local.fuel_mix.items() if k != "non_cfe"}
+        result["miso_wide"] = miso_wide(d)
+        return result
 
-
-def _local_mix_attrs(d: MisoData) -> dict[str, Any]:
-    local = d.local
-    if local is None:
-        return {}
-    return {
-        "area_level": local.agg_type,
-        "area": local.agg_id,
-        "hour": local.timestamp.isoformat(),
-        "fuel_mix": {k: v for k, v in local.fuel_mix.items() if k != "non_cfe"},
-    }
+    return attrs
 
 
 def _marginal_attrs(d: MisoData) -> dict[str, Any]:
@@ -189,15 +200,12 @@ def _marginal_attrs(d: MisoData) -> dict[str, Any]:
     }
 
 
-def _has_key(c: MisoCoordinator) -> bool:
-    return c.singularity is not None
-
-
 def _index_attrs(d: MisoData) -> dict[str, Any]:
     r = d.index_range
     if r is None:
-        return {}
+        return {"source": d.source}
     return {
+        "source": d.source,
         "co2_intensity": d.co2_intensity,
         "window_min": r.min_g,
         "window_min_hour": r.min_at.isoformat(),
@@ -217,6 +225,7 @@ SENSORS: tuple[MisoSensorDescription, ...] = (
         suggested_display_precision=0,
         value_fn=lambda d: d.co2_intensity,
         attrs_fn=_intensity_attrs,
+        available_fn=lambda d: d.co2_intensity is not None,
     ),
     MisoSensorDescription(
         key="co2_intensity_index",
@@ -228,8 +237,29 @@ SENSORS: tuple[MisoSensorDescription, ...] = (
         attrs_fn=_index_attrs,
         available_fn=lambda d: d.index_range is not None,
     ),
-    _pct("renewables", lambda d: d.renewables),
-    _pct("carbon_free", lambda d: d.carbon_free),
+    _pct(
+        "renewables",
+        lambda d: d.renewables,
+        attrs_fn=_share_attrs(lambda d: d.miso_renewables),
+        available_fn=lambda d: d.renewables is not None,
+    ),
+    _pct(
+        "carbon_free",
+        lambda d: d.carbon_free,
+        attrs_fn=_share_attrs(lambda d: d.miso_carbon_free),
+        available_fn=lambda d: d.carbon_free is not None,
+    ),
+    # With a key the headline intensity is local; the MISO-wide estimate stays here for comparison.
+    MisoSensorDescription(
+        key="co2_intensity_estimate",
+        translation_key="co2_intensity_estimate",
+        native_unit_of_measurement=UNIT_CO2_INTENSITY,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=0,
+        value_fn=lambda d: d.estimate,
+        attrs_fn=_estimate_attrs,
+        exists_fn=lambda c: c.singularity is not None,
+    ),
     MisoSensorDescription(
         key="co2_emissions",
         translation_key="co2_emissions",
@@ -237,7 +267,7 @@ SENSORS: tuple[MisoSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=0,
         value_fn=lambda d: d.co2_emissions,
-        attrs_fn=_intensity_attrs,
+        attrs_fn=_estimate_attrs,
         entity_registry_enabled_default=False,
     ),
     # --- demand (RealTimeTotalLoad) ---
@@ -263,25 +293,7 @@ SENSORS: tuple[MisoSensorDescription, ...] = (
         available_fn=_has_load,
         entity_registry_enabled_default=False,
     ),
-    # --- optional: MISO's Emissions API (Singularity), created only with an API key ---
-    MisoSensorDescription(
-        key="local_co2_intensity",
-        translation_key="local_co2_intensity",
-        native_unit_of_measurement=UNIT_CO2_INTENSITY,
-        state_class=SensorStateClass.MEASUREMENT,
-        suggested_display_precision=0,
-        value_fn=lambda d: round(d.local.rate, 1) if d.local else None,
-        attrs_fn=_local_attrs,
-        available_fn=lambda d: d.local is not None,
-        exists_fn=_has_key,
-    ),
-    _pct(
-        "local_carbon_free",
-        lambda d: d.local.carbon_free if d.local else None,
-        attrs_fn=_local_mix_attrs,
-        available_fn=lambda d: d.local is not None and d.local.carbon_free is not None,
-        exists_fn=_has_key,
-    ),
+    # --- optional: Emissions API (Singularity), with an API key and a pricing node ---
     MisoSensorDescription(
         key="marginal_co2_intensity",
         translation_key="marginal_co2_intensity",

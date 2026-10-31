@@ -10,7 +10,7 @@ The Midcontinent grid, live in Home Assistant: demand and the load forecast, the
 
 Data comes from MISO's free public [real-time data APIs](https://www.misoenergy.org/markets-and-operations/RTDataAPIs/), the same feeds behind its [market displays](https://www.misoenergy.org/markets-and-operations/real-time--market-data/markets-displays/). No account, API key or cloud service is needed.
 
-Optionally, add a free key for MISO's [Emissions API](https://miso.singularity.energy/api-docs) (run for MISO by Singularity Energy) to get **local** CO2 intensity for your state, zone, utility or county, and **marginal** CO2 intensity at a pricing node near you, every 5 minutes. See [Local and marginal emissions](#local-and-marginal-emissions-optional).
+Optionally, add a free key for MISO's [Emissions API](https://miso.singularity.energy/api-docs) (run for MISO by Singularity Energy): every carbon number then comes from measured data for **your** utility, zone or state instead of a MISO-wide estimate, and **marginal** CO2 intensity at a pricing node near you is added, every 5 minutes. See [Local and marginal emissions](#local-and-marginal-emissions-optional).
 
 > **Unofficial.** This project is not affiliated with or endorsed by MISO (Midcontinent Independent System Operator). The feeds are public but lightly documented and can change without notice. A daily CI job checks the live feeds so breakage shows up quickly.
 
@@ -61,7 +61,7 @@ Copy `custom_components/miso_stats` from the [latest release](https://github.com
 | Natural gas emission factor | 400 g/kWh | CO2 per kWh from natural gas. |
 | Low carbon index threshold | 25 % | **Low Carbon Energy Now** turns on when the [Carbon Intensity Index](#carbon-intensity-index) is at or below this. |
 | Carbon Intensity Index window | 14 days | Days of history (7–30) whose cleanest and dirtiest hour set the index's 0 and 100. |
-| Emissions API key | empty | Optional. Adds the local and marginal emissions sensors; a second screen picks the area and pricing node. Clear it to remove them. |
+| Emissions API key | empty | Optional. Switches the carbon numbers to your local area and adds marginal emissions; a second screen picks the area and pricing node. Clear it to go back to MISO-wide estimates. |
 
 ## Entities
 
@@ -142,19 +142,26 @@ MISO's [Emissions Dashboard](https://miso.singularity.energy) is built and run f
 
 **Get a key:** sign up with the **Login** button at [miso.singularity.energy](https://miso.singularity.energy), confirm your email, then copy the key from [miso.singularity.energy/account](https://miso.singularity.energy/account). Paste it into the setup form or **Configure**.
 
-**Choose your area and node:** after the key is checked, a second screen shows the county, state, local resource zone and balancing area your home is in. It finds these from Home Assistant's home location, rounded to about 1 km before it's sent. Pick:
-- **Local area**: the level for local emissions. State (the default) and subregion are current hourly; zone, balancing-area and county figures may lag, and setup tells you if an area has no recent data.
-- **Pricing node** (optional): a MISO commercial pricing node near you for marginal emissions. Type to search the list. Leave it empty to skip.
+**Choose your area and node:** after the key is checked, a second screen shows the state, local resource zone and balancing area your home is in. It finds these from Home Assistant's home location, rounded to about 1 km before it's sent. Pick:
+- **Local area**: the area for the carbon numbers. The local balancing area (your utility) is preselected; local resource zone, state, MISO subregion and all of MISO are the alternatives. State and subregion are always current; if the chosen area has no recent data, setup says so and you pick another. County isn't offered: MISO publishes county figures only quarterly.
+- **Pricing node** (optional): a MISO commercial pricing node near you, for marginal emissions. The form lists the nodes the API knows (type to search; names look like `AECI.ALTW`); the [Marginal map](https://miso.singularity.energy/marginal) shows them by location. It's independent of the local area. Leave it empty to skip.
 
-| Entity | Unit | Notes |
+**What changes with a key.** Every carbon number switches from a MISO-wide estimate to Singularity's measured figures for your local area; the entity IDs stay the same, and each has a `source` attribute (`miso` or `singularity`).
+
+| Entity | Without a key | With a key |
 |---|---|---|
-| `sensor.miso_local_co2_intensity` | g/kWh | **Consumed** (location-based) CO2e intensity of electricity used in your area, from Singularity's CarbonFlow tracing of actual power flows. Hourly, published about 90 minutes late. Attributes: `area_level`, `area`, `hour`, `fossil_rate` (the fossil-fuelled share alone). |
-| `sensor.miso_local_carbon_free` | % | Carbon-free share of the energy consumed in your area that hour. `fuel_mix` attribute (not recorded). |
-| `sensor.miso_marginal_co2_intensity` | g/kWh | **Locational marginal emissions** (LME) at your pricing node: the CO2e from the plants that would answer one more MWh of demand there, every 5 minutes, from MISO's real-time market results. `marginal_fuels` attribute (MW of each fuel redispatched per MW of extra load; not recorded). Only with a pricing node. |
+| `sensor.miso_co2_intensity` | MISO-wide estimate, every 5 minutes | **Consumed** (location-based) CO2e for your area, from Singularity's tracing of actual power flows, including imports. Hourly, about 90 minutes late. Extra attributes: `area_level`, `area`, `hour`, `fossil_rate`. |
+| `sensor.miso_carbon_free` | MISO-wide (nuclear, wind, solar) | Your area, all carbon-free sources. `fuel_mix` (not recorded) and `miso_wide` attributes. |
+| `sensor.miso_renewables` | MISO-wide (wind, solar) | Your area: wind, solar, hydro and biomass. `miso_wide` attribute. |
+| `sensor.miso_carbon_intensity_index`, `binary_sensor.miso_low_carbon_energy_now` | From MISO's estimate; history builds up one day per night | From your area's hourly history, **back-filled from the API at setup**, so the index works right away. |
+| `sensor.miso_co2_intensity_estimate` | — | The MISO-wide estimate, kept for comparison. |
+| `sensor.miso_marginal_co2_intensity` | — | **Locational marginal emissions** (LME) at your pricing node: the CO2e from the plants that would answer one more MWh of demand there, every 5 minutes, from MISO's real-time market results. `marginal_fuels` attribute (MW of each fuel redispatched per MW of extra load; not recorded). Only with a pricing node. |
 
-**Which to use:** the local intensity is the best "how clean is my electricity" number (average, like `sensor.miso_co2_intensity` but for your area and measured rather than estimated). The marginal intensity is the better signal for *shifting* load, because it shows what extra use right now actually causes; it can jump between intervals and is often far higher than the average when gas or coal is on the margin.
+Demand, the load forecast and the MW per fuel always come from MISO's own feeds.
 
-**Requests:** marginal emissions on every poll (2 requests) and local emissions once an hour. At the default 15-minute interval that's about 6,500 requests a month, well within the API's 100,000 a month and 5 a second. Your key is stored in Home Assistant, never logged, and redacted from diagnostics. If it stops working, a **Repairs** notice explains how to replace it; the free sensors keep working meanwhile.
+**Which to use:** the local CO2 intensity is the best "how clean is my electricity" number: measured, local, but about 90 minutes behind. The marginal intensity is the better signal for *shifting* load, because it shows what extra use right now actually causes; it can jump between intervals and is often far higher than the average when gas or coal is on the margin.
+
+**Requests:** marginal emissions on every poll (2 requests), local emissions once an hour, and a one-off back-fill of the index window (3 requests). At the default 15-minute interval that's about 6,500 requests a month, well within the API's 100,000 a month and 5 a second. Your key is stored in Home Assistant, never logged, and redacted from diagnostics. If the API stops accepting it, a **Repairs** notice explains how to replace it; demand and the MISO-wide estimate keep working meanwhile.
 
 ## Regional detail
 
@@ -190,7 +197,7 @@ Tip: values update every poll (15 min by default) and can bounce around a thresh
 | Fuel mix | `https://public-api.misoenergy.org/api/FuelMix` | Fuel MW, CO2 estimate, shares | Every poll |
 | Load | `https://public-api.misoenergy.org/api/RealTimeTotalLoad` | Demand, peak, load forecast | Every poll |
 | Yesterday's fuel mix | `https://public-api.misoenergy.org/api/FuelMix/Yesterday` | Carbon Intensity Index history | Once a day (about 250 KB) |
-| Local emissions *(key)* | `https://api.miso.singularity.energy/v1/events/consumed` | Local CO2 intensity, local carbon-free | Once an hour |
+| Local emissions *(key)* | `https://api.miso.singularity.energy/v1/events/consumed` | CO2 intensity, carbon-free and renewable shares, the index (with a key) | Once an hour, plus a one-off back-fill |
 | Marginal emissions *(key)* | `https://api.miso.singularity.energy/v1/events/lme/by-node` and `lmf/by-node` | Marginal CO2 intensity | Every poll |
 
 - The two live feeds are small (about 10 KB together). The default 15-minute interval is frequent enough for home automations and gentle on a free public service; lower it to 5 minutes in Options if you want every interval. Requests time out after 30 s.

@@ -33,6 +33,7 @@ BINARY_SENSORS: tuple[MisoBinaryDescription, ...] = (
         entity_registry_enabled_default=False,
         is_on_fn=lambda d: d.low_carbon_now,
         attrs_fn=lambda d, o: {
+            "source": d.source,
             "co2_intensity": d.co2_intensity,
             "co2_intensity_index": d.co2_index,
             "index_threshold": o[CONF_LOW_CARBON_INDEX],

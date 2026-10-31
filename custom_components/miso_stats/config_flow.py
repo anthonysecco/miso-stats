@@ -50,6 +50,7 @@ from .singularity import (
     SingularityAuthError,
     SingularityClient,
     SingularityError,
+    SingularityForbiddenError,
     SingularityNoAreaError,
     marginal_from,
     parse_consumed,
@@ -86,8 +87,9 @@ def options_schema(current: dict[str, Any]) -> vol.Schema:
     return vol.Schema(fields)
 
 
-def _location_placeholders(location: Location) -> dict[str, str]:
+def _location_placeholders(location: Location, nodes: list[str]) -> dict[str, str]:
     return {
+        "node_count": str(len(nodes)),
         "county": location.county or "?",
         "state": location.state or "?",
         "lrz": str(location.lrz) if location.lrz is not None else "?",
@@ -117,7 +119,8 @@ class SingularitySetup:
         self.api_key = api_key.strip()
         try:
             self.location = await self.client().location(self.hass.config.latitude, self.hass.config.longitude)
-        except SingularityAuthError:
+        except (SingularityAuthError, SingularityForbiddenError) as err:
+            LOGGER.warning("MISO Emissions API did not accept the key: %s", err)
             return "invalid_auth"
         except SingularityNoAreaError:
             return "outside_miso"
@@ -126,9 +129,12 @@ class SingularitySetup:
             return "cannot_connect_singularity"
         try:
             self.nodes = await self.client().nodes(dt_util.utcnow())
-        except SingularityError as err:  # the node list only fills the picker; typing a name still works
-            LOGGER.debug("Could not list pricing nodes: %s", err)
+        except SingularityError as err:  # the list only fills the picker; typing a name still works
+            LOGGER.warning("Could not load the pricing node list (a name can still be typed): %s", err)
             self.nodes = []
+        else:
+            if not self.nodes:
+                LOGGER.warning("The Emissions API listed no pricing nodes for recent intervals")
         return None
 
     def schema(self, current: dict[str, Any]) -> vol.Schema:
@@ -162,13 +168,20 @@ class SingularitySetup:
         try:
             if parse_consumed(await client.consumed_text(level, self.location.agg_id(level), now)) is None:
                 errors[CONF_LOCAL_LEVEL] = "level_unavailable"
-            if node and marginal_from(*await client.marginal_texts(node, now), node) is None:
-                errors[CONF_CP_NODE] = "unknown_node"
         except SingularityAuthError:
             errors["base"] = "invalid_auth"
-        except SingularityError as err:
-            LOGGER.warning("MISO Emissions API check failed: %s", err)
+        except SingularityError as err:  # incl. HTTP 403: the key works but can't query this level
+            LOGGER.warning("No local emissions for %s %s: %s", level, self.location.agg_id(level), err)
             errors[CONF_LOCAL_LEVEL] = "level_unavailable"
+        if node and "base" not in errors:
+            try:
+                if marginal_from(*await client.marginal_texts(node, now), node) is None:
+                    errors[CONF_CP_NODE] = "unknown_node"
+            except SingularityAuthError:
+                errors["base"] = "invalid_auth"
+            except SingularityError as err:
+                LOGGER.warning("No marginal emissions for pricing node %s: %s", node, err)
+                errors[CONF_CP_NODE] = "unknown_node"
         options = {
             CONF_API_KEY: self.api_key,
             CONF_LOCAL_LEVEL: level,
@@ -227,7 +240,7 @@ class MisoStatsConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="singularity",
             data_schema=setup.schema(user_input or {}),
             errors=errors,
-            description_placeholders=_location_placeholders(setup.location),
+            description_placeholders=_location_placeholders(setup.location, setup.nodes),
         )
 
     @staticmethod
@@ -278,5 +291,5 @@ class MisoStatsOptionsFlow(OptionsFlowWithReload):
             step_id="singularity",
             data_schema=setup.schema(user_input or dict(self.config_entry.options)),
             errors=errors,
-            description_placeholders=_location_placeholders(setup.location),
+            description_placeholders=_location_placeholders(setup.location, setup.nodes),
         )

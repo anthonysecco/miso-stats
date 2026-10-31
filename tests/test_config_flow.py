@@ -127,11 +127,61 @@ async def test_options_add_then_remove_api_key(hass: HomeAssistant, mock_singula
     assert entry.options["api_key"] == TEST_API_KEY
     assert entry.options["local_level"] == "lrz"
     assert "cp_node" not in entry.options
-    assert hass.states.get("sensor.miso_local_co2_intensity") is not None
+    assert hass.states.get("sensor.miso_co2_intensity_estimate") is not None
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
     result = await hass.config_entries.options.async_configure(result["flow_id"], dict(DEFAULT_OPTIONS))
     await hass.async_block_till_done(wait_background_tasks=True)
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert entry.options == DEFAULT_OPTIONS  # key, areas and level dropped
-    assert hass.states.get("sensor.miso_local_co2_intensity") is None
+    assert hass.states.get("sensor.miso_co2_intensity_estimate") is None
+
+
+async def test_emissions_step_defaults_and_choices(hass: HomeAssistant, mock_singularity) -> None:
+    """The local balancing area is preselected, county isn't offered, and the form counts the listed nodes."""
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"api_key": TEST_API_KEY})
+    assert result["description_placeholders"]["node_count"] == "3"
+    schema = result["data_schema"].schema
+    level_key = next(k for k in schema if k == "local_level")
+    assert level_key.default() == "lba"
+    assert "county" not in schema[level_key].config["options"]
+    assert schema[next(k for k in schema if k == "cp_node")].config["options"] == [
+        "AECI.ALTW",
+        "ALTE.CASSVILLE",
+        "AMIL.BALDWIN1",
+    ]
+
+
+async def test_forbidden_level_is_not_a_bad_key(hass: HomeAssistant, mock_miso, freezer) -> None:
+    """HTTP 403 for an area level means no data for it, not a rejected key."""
+    freezer.move_to(FIXTURE_NOW_ISO)
+    location, nodes = load_fixture("singularity_location.json"), load_fixture("singularity_nodes.json")
+    mock_miso.get(f"{SINGULARITY_API}/data-availability/lookup/coordinates", text=location)
+    mock_miso.get(f"{SINGULARITY_API}/events/lme/by-timestamp", text=nodes)
+    mock_miso.get(f"{SINGULARITY_API}/events/consumed", status=403, text='{"message": "Forbidden"}')
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"api_key": TEST_API_KEY})
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"local_level": "lba"})
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"local_level": "level_unavailable"}
+
+
+async def test_node_list_failure_still_allows_typing(hass: HomeAssistant, mock_miso, freezer) -> None:
+    freezer.move_to(FIXTURE_NOW_ISO)
+    mock_miso.get(
+        f"{SINGULARITY_API}/data-availability/lookup/coordinates", text=load_fixture("singularity_location.json")
+    )
+    mock_miso.get(f"{SINGULARITY_API}/events/lme/by-timestamp", status=500)
+    mock_miso.get(f"{SINGULARITY_API}/events/consumed", text=load_fixture("singularity_consumed.json"))
+    mock_miso.get(f"{SINGULARITY_API}/events/lme/by-node", text=load_fixture("singularity_lme.json"))
+    mock_miso.get(f"{SINGULARITY_API}/events/lmf/by-node", text=load_fixture("singularity_lmf.json"))
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"api_key": TEST_API_KEY})
+    assert result["step_id"] == "singularity"
+    assert result["description_placeholders"]["node_count"] == "0"
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"local_level": "state", "cp_node": TEST_NODE}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["options"]["cp_node"] == TEST_NODE

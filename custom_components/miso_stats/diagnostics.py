@@ -59,9 +59,19 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: MisoCon
         },
         "emissions_api": {
             "configured": coordinator.singularity is not None,
+            "carbon_source": None if data is None else data.source,
+            "miso_wide_estimate": None if data is None else data.estimate,
             "local_level": coordinator.local_level,
             "location": coordinator.location.as_dict(),
             "cp_node": coordinator.cp_node,
+            "local_history": None
+            if coordinator.local_history is None
+            else {
+                "area": coordinator.local_history.area,
+                "hours": len(coordinator.local_history.hours),
+                "first": min(coordinator.local_history.hours).isoformat() if coordinator.local_history.hours else None,
+                "backfill_error": coordinator.backfill_error,
+            },
             "local": None
             if data is None or data.local is None
             else {
@@ -69,6 +79,7 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: MisoCon
                 "area": f"{data.local.agg_type}: {data.local.agg_id}",
                 "rate_g_per_kwh": round(data.local.rate, 1),
                 "carbon_free": data.local.carbon_free,
+                "renewables": data.local.renewables,
             },
             "marginal": None
             if data is None or data.marginal is None
