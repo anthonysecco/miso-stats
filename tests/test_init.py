@@ -252,7 +252,20 @@ async def test_index_turns_on_after_first_midnight(
 ) -> None:
     """Install day: one day stored, no index. Just after midnight EST the new day arrives and the index appears."""
     freezer.move_to(FIXTURE_NOW_ISO)
-    entry = await _setup(hass, enable=("binary_sensor.miso_low_carbon_energy_now",))
+    # Enable the binary sensor in the registry before setup: enabling it afterwards schedules a
+    # delayed reload that would swap the coordinator out from under the clock jumps below.
+    entry = MockConfigEntry(domain=DOMAIN, title="MISO", data={}, options=dict(DEFAULT_OPTIONS))
+    entry.add_to_hass(hass)
+    er.async_get(hass).async_get_or_create(
+        "binary_sensor",
+        DOMAIN,
+        f"{entry.entry_id}_clean_energy_now",
+        config_entry=entry,
+        suggested_object_id="miso_low_carbon_energy_now",
+    )
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    coordinator = entry.runtime_data
     assert hass.states.get("sensor.miso_carbon_intensity_index").state == STATE_UNAVAILABLE
     assert hass.states.get("binary_sensor.miso_low_carbon_energy_now").state == "unknown"
 
@@ -262,18 +275,16 @@ async def test_index_turns_on_after_first_midnight(
     mock_miso.get(LOAD_URL, text=load_text)
     mock_miso.get(FUEL_MIX_YESTERDAY_URL, text=yesterday_text.replace("2026-10-30", "2026-10-31"))
 
-    # Enabling the binary sensor also schedules a delayed reload, which can swap in a new
-    # coordinator when the clock jumps; always poll the entry's current one.
     freezer.move_to("2026-11-01 00:10:00-05:00")  # not rolled over yet: nothing asked
-    await hass.async_block_till_done(wait_background_tasks=True)
-    await entry.runtime_data.async_refresh()
+    await coordinator.async_refresh()
     await hass.async_block_till_done(wait_background_tasks=True)
     assert _yesterday_fetches(mock_miso) == 0
 
     freezer.move_to("2026-11-01 00:25:00-05:00")
-    await entry.runtime_data.async_refresh()
+    await coordinator.async_refresh()
     await hass.async_block_till_done(wait_background_tasks=True)
     assert _yesterday_fetches(mock_miso) == 1
+    assert entry.runtime_data is coordinator  # no reload happened along the way
     index = hass.states.get("sensor.miso_carbon_intensity_index")
     assert int(index.state) == 51
     assert index.attributes["window_days"] == 2
