@@ -34,7 +34,7 @@ SINGULARITY_OPTIONS = {
         "county": "Wayne",
         "state": "Michigan",
         "lrz": 7,
-        "lba": "DTE Electric Company",
+        "lba": "Detroit Edison Company",
         "subregion": "CENTRAL",
     },
 }

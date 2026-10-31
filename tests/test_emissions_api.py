@@ -51,15 +51,15 @@ async def test_emissions_sensors(hass: HomeAssistant, mock_singularity, freezer)
     assert entry.state is ConfigEntryState.LOADED
 
     local = hass.states.get("sensor.miso_local_co2_intensity")
-    assert float(local.state) == 449.1  # Michigan, 13:00 UTC hour, 990.0 lbs/MWh
+    assert float(local.state) == 404.7  # Michigan, 15:00 UTC hour, 892.25 lbs/MWh (captured)
     assert local.attributes["unit_of_measurement"] == "g/kWh"
     assert local.attributes["area_level"] == "state" and local.attributes["area"] == "Michigan"
-    assert local.attributes["hour"] == "2026-10-31T13:00:00+00:00"
-    assert local.attributes["fossil_rate"] == 590.4
+    assert local.attributes["hour"] == "2026-10-31T15:00:00+00:00"
+    assert local.attributes["fossil_rate"] == 624.0
 
     carbon_free = hass.states.get("sensor.miso_local_carbon_free")
-    assert float(carbon_free.state) == 25.8
-    assert carbon_free.attributes["fuel_mix"]["nuclear"] == 14.5
+    assert float(carbon_free.state) == 35.0  # non_cfe_percentage 0.65 is a fraction
+    assert carbon_free.attributes["fuel_mix"]["nuclear"] == 23.0
 
     marginal = hass.states.get("sensor.miso_marginal_co2_intensity")
     assert float(marginal.state) == 765.7  # AECI.ALTW, 15:25 UTC, 1688.0 lbs/MWh
@@ -114,7 +114,7 @@ async def test_rejected_key_raises_repair(hass: HomeAssistant, mock_miso, freeze
     await entry.runtime_data.async_refresh()
     await hass.async_block_till_done()
     assert ir.async_get(hass).async_get_issue(DOMAIN, "invalid_api_key") is None
-    assert float(hass.states.get("sensor.miso_local_co2_intensity").state) == 449.1
+    assert float(hass.states.get("sensor.miso_local_co2_intensity").state) == 404.7
 
 
 async def test_removing_key_removes_entities(hass: HomeAssistant, mock_singularity, freezer) -> None:
@@ -137,6 +137,6 @@ async def test_diagnostics_redact_key(hass: HomeAssistant, mock_singularity, fre
     assert diag["options"]["api_key"] == "**REDACTED**"
     assert TEST_API_KEY not in str(diag)
     assert diag["emissions_api"]["configured"] is True
-    assert diag["emissions_api"]["local"]["rate_g_per_kwh"] == 449.1
+    assert diag["emissions_api"]["local"]["rate_g_per_kwh"] == 404.7
     assert diag["emissions_api"]["marginal"]["rate_g_per_kwh"] == 765.7
     assert diag["raw"]["consumed"]["data"][0]["agg_id"] == "Michigan"

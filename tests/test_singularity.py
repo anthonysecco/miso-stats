@@ -32,12 +32,12 @@ NOW = datetime(2026, 10, 31, 15, 35, tzinfo=UTC)
 def test_parse_location_and_area_ids() -> None:
     location = parse_location(load_fixture("singularity_location.json"))
     assert location == Location(
-        county="Wayne", state="Michigan", lrz=7, lba="DTE Electric Company", subregion="CENTRAL"
+        county="Wayne", state="Michigan", lrz=7, lba="Detroit Edison Company", subregion="CENTRAL"
     )
     assert location.agg_id("state") == "Michigan"
     assert location.agg_id("county") == "Wayne (Michigan)"
     assert location.agg_id("lrz") == "7"
-    assert location.agg_id("lba") == "DTE Electric Company"
+    assert location.agg_id("lba") == "Detroit Edison Company"
     assert location.agg_id("subregion") == "CENTRAL"
     assert location.agg_id("miso") is None
     assert Location.from_dict(location.as_dict()) == location
@@ -47,14 +47,30 @@ def test_parse_location_and_area_ids() -> None:
 
 
 def test_parse_consumed_latest_hour_in_g_per_kwh() -> None:
+    """Captured from the live API (Michigan, Oct 31 2026): fuel mix "percentages" arrive as fractions."""
     local = parse_consumed(load_fixture("singularity_consumed.json"))
     assert local is not None
-    assert local.timestamp == datetime(2026, 10, 31, 13, 0, tzinfo=UTC)
+    assert local.timestamp == datetime(2026, 10, 31, 15, 0, tzinfo=UTC)
     assert (local.agg_type, local.agg_id) == ("state", "Michigan")
-    assert local.rate == pytest.approx(449.06, abs=0.01)  # 990.0 lbs/MWh
-    assert local.non_cfe_rate == pytest.approx(590.40, abs=0.01)
-    assert local.carbon_free == 25.8  # 100 - 74.2 % non-CFE
-    assert local.fuel_mix["wind"] == 8.5 and "non_cfe" in local.fuel_mix
+    assert local.rate == pytest.approx(404.72, abs=0.01)  # 892.25 lbs/MWh
+    assert local.non_cfe_rate == pytest.approx(623.98, abs=0.01)  # 1375.65 lbs/MWh
+    assert local.carbon_free == 35.0  # non_cfe_percentage 0.65
+    assert local.fuel_mix["nuclear"] == 23.0 and local.fuel_mix["wind"] == 2.0
+    assert 99 <= sum(v for k, v in local.fuel_mix.items() if k != "non_cfe") <= 101
+
+
+def test_parse_consumed_whole_percentages_kept() -> None:
+    """Should the API switch to whole percentages, they're used as they are."""
+    event = {
+        "timestamp": "2026-10-31T13:00:00Z",
+        "agg_type": "state",
+        "agg_id": "Michigan",
+        "emissions": {"rate_co2e_lbs_per_mwh": 990.0},
+        "fuel_mix": {"non_cfe_percentage": 74.2, "coal_percentage": 30.1, "natural_gas_percentage": 44.1,
+                     "nuclear_percentage": 14.5, "wind_percentage": 11.3},
+    }
+    local = parse_consumed(json.dumps({"data": [event]}))
+    assert local is not None and local.carbon_free == 25.8 and local.fuel_mix["coal"] == 30.1
 
 
 def test_parse_consumed_metric_units_and_empty() -> None:

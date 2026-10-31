@@ -176,13 +176,18 @@ def parse_consumed(text: str) -> LocalEmissions | None:
             agg_id=event.get("agg_id"),
             rate=rate,
             non_cfe_rate=_rate_g_per_kwh(emissions, "non_cfe_rate_co2e"),
-            fuel_mix={
-                k.removesuffix("_percentage"): v
-                for k, v in ((k, _number(v)) for k, v in mix.items())
-                if v is not None
-            },
+            fuel_mix=_percentages(mix),
         )
     return latest
+
+
+def _percentages(mix: Mapping[str, Any]) -> dict[str, float]:
+    """Fuel mix in %, keyed by fuel. The API's `*_percentage` fields are fractions (0.65 = 65 %);
+    whole percentages are recognised by their sum and left as they are."""
+    values = {k.removesuffix("_percentage"): v for k, v in ((k, _number(v)) for k, v in mix.items()) if v is not None}
+    fuels_total = sum(v for k, v in values.items() if k != "non_cfe")
+    scale = 100 if 0 < fuels_total <= 1.5 or (not fuels_total and values.get("non_cfe", 0) <= 1) else 1
+    return {k: round(v * scale, 2) for k, v in values.items()}
 
 
 # --- marginal emissions -----------------------------------------------------------------
