@@ -204,7 +204,10 @@ class MisoCoordinator(DataUpdateCoordinator[MisoData]):
             LOGGER.debug("MISO load feed failed this poll: %s", err)
             self._load = _fresh(self._load, now)
 
+        # Start the history download before computing this poll's result: background tasks start
+        # eagerly, so a download that completes without waiting must be in the window used here,
+        # or this poll's result would overwrite the index it just produced.
+        self._maybe_fetch_history(now)
         data = derive(fuel_mix, self._load, dict(self.config_entry.options), self._window(now))
         data.errors = errors
-        self._maybe_fetch_history(now)
         return data
