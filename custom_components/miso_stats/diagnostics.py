@@ -46,7 +46,6 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: MisoCon
                 "days": data.index_range.days,
             },
             "low_carbon_now": data.low_carbon_now,
-            "hub": data.hub,
             "feed_errors": data.errors,
         },
         "history": {

@@ -3,13 +3,7 @@
     "step": {
       "user": {
         "title": "MISO Stats",
-        "description": "Adds MISO grid conditions (demand, load forecast, fuel mix, renewable and carbon-free shares, estimated CO2 intensity, hub price) and a carbon intensity index. Uses MISO's free public real-time data APIs; no account or key needed. Polls every 15 minutes by default.",
-        "data": {
-          "hub": "Price hub"
-        },
-        "data_description": {
-          "hub": "Trading hub whose real-time price the Hub price sensor shows. Pick the one nearest you; you can change it later under Configure."
-        }
+        "description": "Adds MISO grid conditions (demand, load forecast, fuel mix, renewable and carbon-free shares, estimated CO2 intensity) and a carbon intensity index. Uses MISO's free public real-time data APIs; no account or key needed. Polls every 15 minutes by default."
       }
     },
     "error": {
@@ -23,9 +17,8 @@
     "step": {
       "init": {
         "title": "MISO Stats options",
-        "description": "Price hub, polling interval, the emission factors behind the CO2 estimate and the Carbon Intensity Index settings.",
+        "description": "Polling interval, the emission factors behind the CO2 estimate and the Carbon Intensity Index settings.",
         "data": {
-          "hub": "Price hub",
           "scan_interval": "Update interval",
           "coal_emission_factor": "Coal emission factor",
           "gas_emission_factor": "Natural gas emission factor",
@@ -33,28 +26,12 @@
           "index_days": "Carbon Intensity Index window"
         },
         "data_description": {
-          "hub": "Trading hub whose real-time price the Hub price sensor shows.",
           "scan_interval": "How often to poll MISO (5-60 minutes). MISO updates its feeds every 5 minutes.",
           "coal_emission_factor": "Grams of CO2 per kWh from coal plants (about 1,000 for the US coal fleet).",
           "gas_emission_factor": "Grams of CO2 per kWh from natural gas plants (about 400 for a combined-cycle-heavy fleet).",
           "low_carbon_index_threshold": "Low Carbon Energy Now is on when the Carbon Intensity Index is at or below this (0 = the cleanest hour of recent days, 100 = the dirtiest).",
           "index_days": "Days of history (7-30) whose cleanest and dirtiest hour set the Carbon Intensity Index's 0 and 100."
         }
-      }
-    }
-  },
-  "selector": {
-    "hub": {
-      "options": {
-        "arkansas": "Arkansas Hub",
-        "illinois": "Illinois Hub",
-        "indiana": "Indiana Hub",
-        "louisiana": "Louisiana Hub",
-        "michigan": "Michigan Hub",
-        "minnesota": "Minnesota Hub",
-        "mississippi": "Mississippi Hub",
-        "texas": "Texas Hub",
-        "swpp": "SPP interface (SWPP)"
       }
     }
   },
@@ -72,7 +49,6 @@
       "todays_peak_demand": { "name": "Today's peak demand" },
       "forecast_peak_demand_today": { "name": "Forecast peak demand today" },
       "load_forecast": { "name": "Load forecast" },
-      "hub_price": { "name": "Hub price" },
       "generation": { "name": "Generation" },
       "coal": { "name": "Coal" },
       "natural_gas": { "name": "Natural gas" },

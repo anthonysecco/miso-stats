@@ -4,7 +4,6 @@ Replace the `switch.*`, `climate.*` and `notify.*` entities with your own. Each 
 
 - [EV charging when the grid is clean](#ev-charging-when-the-grid-is-clean)
 - [Water heater boost when the grid is clean](#water-heater-boost-when-the-grid-is-clean)
-- [Price spike alert](#price-spike-alert)
 - [Ease off near the forecast peak](#ease-off-near-the-forecast-peak)
 - [Nudge to start the dishwasher or laundry](#nudge-to-start-the-dishwasher-or-laundry)
 - [Dashboard cards](#dashboard-cards)
@@ -58,28 +57,6 @@ actions:
     target:
       entity_id: switch.water_heater_boost
 mode: restart
-```
-
-## Price spike alert
-
-Wholesale prices in MISO usually sit around $20–40/MWh and spike when the grid is tight. A spike is a good proxy for "the grid is stressed": a time to hold off on big loads even if your retail rate is flat.
-
-```yaml
-alias: "Grid: MISO price spike"
-triggers:
-  - trigger: numeric_state
-    entity_id: sensor.miso_hub_price
-    above: 150
-    for: "00:10:00"
-actions:
-  - action: notify.notify
-    data:
-      title: MISO price spike
-      message: >-
-        {{ state_attr('sensor.miso_hub_price', 'hub') }} is at
-        ${{ states('sensor.miso_hub_price') | float(0) | round(0) }}/MWh.
-        Please hold off on big loads for a while.
-mode: single
 ```
 
 ## Ease off near the forecast peak
@@ -157,7 +134,7 @@ cards:
       - type: tile
         entity: sensor.miso_demand
       - type: tile
-        entity: sensor.miso_hub_price
+        entity: sensor.miso_renewables
   - type: gauge
     entity: sensor.miso_carbon_intensity_index
     name: Grid carbon vs. last 14 days
@@ -208,12 +185,6 @@ The MISO day runs on Eastern Standard Time, so in summer "today" starts at 1 AM 
 Fossil share (coal + gas) of the generation the estimate uses:
 ```jinja
 {{ 100 - states('sensor.miso_carbon_free') | float(0) }}
-```
-
-Cheapest hub right now:
-```jinja
-{% set hubs = state_attr('sensor.miso_hub_price', 'hubs') %}
-{{ hubs | dictsort(by='value') | first | first }}
 ```
 
 Is the grid charging its batteries? (enable the Battery storage sensor first)

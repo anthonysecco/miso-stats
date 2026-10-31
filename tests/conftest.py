@@ -11,7 +11,6 @@ from custom_components.miso_stats import api
 from custom_components.miso_stats.const import (
     FUEL_MIX_URL,
     FUEL_MIX_YESTERDAY_URL,
-    LMP_URL,
     LOAD_URL,
     MISO_TZ,
 )
@@ -53,22 +52,15 @@ def load_text() -> str:
 
 
 @pytest.fixture
-def lmp_text() -> str:
-    """GetExAnteLmp fixture."""
-    return load_fixture("exante_lmp.json")
-
-
-@pytest.fixture
 def yesterday_text() -> str:
     """FuelMix/Yesterday fixture (Oct 30, 2026)."""
     return load_fixture("fuelmix_yesterday.json")
 
 
 @pytest.fixture
-def mock_miso(aioclient_mock, fuel_mix_text, load_text, lmp_text, yesterday_text):
+def mock_miso(aioclient_mock, fuel_mix_text, load_text, yesterday_text):
     """Every feed answers with the saved fixtures."""
     aioclient_mock.get(FUEL_MIX_URL, text=fuel_mix_text)
     aioclient_mock.get(LOAD_URL, text=load_text)
-    aioclient_mock.get(LMP_URL, text=lmp_text)
     aioclient_mock.get(FUEL_MIX_YESTERDAY_URL, text=yesterday_text)
     return aioclient_mock

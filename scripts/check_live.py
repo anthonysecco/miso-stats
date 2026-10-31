@@ -20,10 +20,9 @@ from custom_components.miso_stats.api import (
     MisoError,
     co2_intensity,
     parse_fuel_mix,
-    parse_lmp,
     parse_load,
 )
-from custom_components.miso_stats.const import HUBS, INTENSITY_FUELS, MISO_TZ
+from custom_components.miso_stats.const import INTENSITY_FUELS, MISO_TZ
 from custom_components.miso_stats.coordinator import derive
 
 MAX_AGE = timedelta(minutes=30)
@@ -32,7 +31,7 @@ MAX_AGE = timedelta(minutes=30)
 async def main() -> int:
     async with aiohttp.ClientSession() as session:
         client = MisoClient(session)
-        fuel_text, load_text, lmp_text = await client.fetch()
+        fuel_text, load_text = await client.fetch()
         try:
             past: DayMix | MisoError = await client.history_day()
         except MisoError as err:
@@ -63,25 +62,11 @@ async def main() -> int:
             if load.demand is None:
                 problems.append("RealTimeTotalLoad has no 5-minute demand")
 
-    prices = None
-    if isinstance(lmp_text, MisoError):
-        problems.append(f"GetExAnteLmp: {lmp_text}")
-    else:
-        try:
-            prices = parse_lmp(lmp_text)
-        except MisoError as err:
-            problems.append(f"GetExAnteLmp: {err}")
-        else:
-            gone = [name for name in HUBS.values() if name not in prices.hubs]
-            if gone:
-                problems.append(f"GetExAnteLmp missing hubs: {', '.join(gone)}")
-
-    data = derive(mix, load, prices, {})
+    data = derive(mix, load, {})
     demand = load.demand[1] if load and load.demand else None
     print(
         f"{mix.updated:%Y-%m-%d %H:%M} EST demand={demand} MW generation={mix.generation:.0f} MW "
-        f"co2={data.co2_intensity} g/kWh renewables={data.renewables}% carbon_free={data.carbon_free}% "
-        f"{data.hub}={data.hub_price.lmp if data.hub_price else None} $/MWh"
+        f"co2={data.co2_intensity} g/kWh renewables={data.renewables}% carbon_free={data.carbon_free}%"
     )
     if isinstance(past, MisoError):
         problems.append(f"FuelMix/Yesterday: {past}")

@@ -25,7 +25,6 @@ PARALLEL_UPDATES = 0
 
 UNIT_CO2_RATE = "t/h"
 UNIT_CO2_INTENSITY = "g/kWh"
-UNIT_PRICE = "USD/MWh"
 
 StateType = str | float | datetime | None
 
@@ -150,28 +149,6 @@ def _forecast_attrs(d: MisoData) -> dict[str, Any]:
     }
 
 
-def _price(d: MisoData) -> float | None:
-    hub = d.hub_price
-    return hub.lmp if hub else None
-
-
-def _price_attrs(d: MisoData) -> dict[str, Any]:
-    hub = d.hub_price
-    if hub is None or d.prices is None:
-        return {"hub": d.hub}
-    energy = None
-    if hub.loss is not None and hub.congestion is not None:
-        energy = round(hub.lmp - hub.loss - hub.congestion, 2)
-    return {
-        "hub": d.hub,
-        "energy": energy,
-        "loss": hub.loss,
-        "congestion": hub.congestion,
-        "interval": _iso(d.prices.updated),
-        "hubs": {name: p.lmp for name, p in d.prices.hubs.items()},
-    }
-
-
 def _intensity_attrs(d: MisoData) -> dict[str, Any]:
     return {"coal_factor": d.coal_factor, "gas_factor": d.gas_factor, "estimated": True}
 
@@ -246,17 +223,6 @@ SENSORS: tuple[MisoSensorDescription, ...] = (
         available_fn=_has_load,
         entity_registry_enabled_default=False,
     ),
-    # --- price (GetExAnteLmp) ---
-    MisoSensorDescription(
-        key="hub_price",
-        translation_key="hub_price",
-        native_unit_of_measurement=UNIT_PRICE,
-        state_class=SensorStateClass.MEASUREMENT,
-        suggested_display_precision=2,
-        value_fn=_price,
-        attrs_fn=_price_attrs,
-        available_fn=lambda d: d.hub_price is not None,
-    ),
     # --- supply mix (FuelMix), off by default ---
     _mw(
         "generation",
@@ -291,7 +257,7 @@ class MisoSensor(MisoEntity, SensorEntity):
     """A MISO value."""
 
     entity_description: MisoSensorDescription
-    _unrecorded_attributes = frozenset({"forecast", "hubs"})
+    _unrecorded_attributes = frozenset({"forecast"})
 
     @property
     def available(self) -> bool:

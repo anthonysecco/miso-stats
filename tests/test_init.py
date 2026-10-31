@@ -17,7 +17,6 @@ from custom_components.miso_stats.const import (
     DOMAIN,
     FUEL_MIX_URL,
     FUEL_MIX_YESTERDAY_URL,
-    LMP_URL,
     LOAD_URL,
 )
 from custom_components.miso_stats.history import STORAGE_KEY, STORAGE_VERSION
@@ -30,7 +29,6 @@ ENABLED_BY_DEFAULT = {
     "sensor.miso_renewables",
     "sensor.miso_carbon_free",
     "sensor.miso_demand",
-    "sensor.miso_hub_price",
     "sensor.miso_data_updated",
 }
 
@@ -115,12 +113,6 @@ async def test_setup_creates_entities(hass: HomeAssistant, mock_miso, freezer) -
     assert len(forecast.attributes["forecast"]) == 24
     assert forecast.attributes["forecast"][0]["day_ahead_mw"] == 59391
 
-    price = hass.states.get("sensor.miso_hub_price")
-    assert float(price.state) == 27.29
-    assert price.attributes["unit_of_measurement"] == "USD/MWh"
-    assert price.attributes["hub"] == "INDIANA.HUB"
-    assert price.attributes["hubs"]["MICHIGAN.HUB"] == 27.61
-
     assert float(hass.states.get("sensor.miso_coal").state) == 19727
     assert float(hass.states.get("sensor.miso_imports").state) == 2840
     assert hass.states.get("sensor.miso_battery_storage").attributes["mode"] == "discharging"
@@ -133,22 +125,20 @@ async def test_setup_creates_entities(hass: HomeAssistant, mock_miso, freezer) -
     assert entry.state is ConfigEntryState.NOT_LOADED
 
 
-async def test_load_and_price_feeds_down(hass: HomeAssistant, aioclient_mock, fuel_mix_text, yesterday_text) -> None:
-    """The fuel mix still works when the demand and price feeds fail; their sensors go unavailable."""
+async def test_load_feed_down(hass: HomeAssistant, aioclient_mock, fuel_mix_text, yesterday_text) -> None:
+    """The fuel mix still works when the demand feed fails; the demand sensors go unavailable."""
     aioclient_mock.get(FUEL_MIX_URL, text=fuel_mix_text)
-    aioclient_mock.get(LOAD_URL, status=503)
-    aioclient_mock.get(LMP_URL, text="<html>oops</html>")
+    aioclient_mock.get(LOAD_URL, text="<html>oops</html>")
     aioclient_mock.get(FUEL_MIX_YESTERDAY_URL, text=yesterday_text)
     entry = await _setup(hass)
     assert entry.state is ConfigEntryState.LOADED
     assert float(hass.states.get("sensor.miso_co2_intensity").state) == 446.0
     assert hass.states.get("sensor.miso_demand").state == STATE_UNAVAILABLE
-    assert hass.states.get("sensor.miso_hub_price").state == STATE_UNAVAILABLE
-    assert set(entry.runtime_data.data.errors) == {"load", "lmp"}
+    assert set(entry.runtime_data.data.errors) == {"load"}
 
 
 async def test_failed_feed_keeps_recent_values(
-    hass: HomeAssistant, mock_miso, fuel_mix_text, lmp_text, yesterday_text, freezer
+    hass: HomeAssistant, mock_miso, fuel_mix_text, yesterday_text, freezer
 ) -> None:
     """A demand feed failure keeps the last reading for up to 30 minutes, then goes unavailable."""
     freezer.move_to(FIXTURE_NOW_ISO)
@@ -158,7 +148,6 @@ async def test_failed_feed_keeps_recent_values(
     mock_miso.clear_requests()
     mock_miso.get(FUEL_MIX_URL, text=fuel_mix_text)
     mock_miso.get(LOAD_URL, status=500)
-    mock_miso.get(LMP_URL, text=lmp_text)
     mock_miso.get(FUEL_MIX_YESTERDAY_URL, text=yesterday_text)
 
     freezer.move_to("2026-10-31 10:50:00-05:00")  # 20 minutes after the reading
@@ -173,7 +162,7 @@ async def test_failed_feed_keeps_recent_values(
 
 
 async def test_fuel_mix_down_retries(hass: HomeAssistant, aioclient_mock) -> None:
-    for url in (FUEL_MIX_URL, LOAD_URL, LMP_URL, FUEL_MIX_YESTERDAY_URL):
+    for url in (FUEL_MIX_URL, LOAD_URL, FUEL_MIX_YESTERDAY_URL):
         aioclient_mock.get(url, status=500)
     entry = await _setup(hass)
     assert entry.state is ConfigEntryState.SETUP_RETRY
@@ -233,13 +222,12 @@ async def test_history_survives_restart(hass: HomeAssistant, mock_miso, freezer)
 
 
 async def test_history_retried_hourly(
-    hass: HomeAssistant, mock_miso, fuel_mix_text, load_text, lmp_text, freezer
+    hass: HomeAssistant, mock_miso, fuel_mix_text, load_text, freezer
 ) -> None:
     """A failed FuelMix/Yesterday download is retried an hour later, not every poll."""
     mock_miso.clear_requests()
     mock_miso.get(FUEL_MIX_URL, text=fuel_mix_text)
     mock_miso.get(LOAD_URL, text=load_text)
-    mock_miso.get(LMP_URL, text=lmp_text)
     mock_miso.get(FUEL_MIX_YESTERDAY_URL, status=502)
     freezer.move_to(FIXTURE_NOW_ISO)
     entry = await _setup(hass)
@@ -257,3 +245,48 @@ async def test_history_retried_hourly(
     await coordinator.async_refresh()
     await hass.async_block_till_done(wait_background_tasks=True)
     assert _yesterday_fetches(mock_miso) == tries * 2
+
+
+async def test_index_turns_on_after_first_midnight(
+    hass: HomeAssistant, mock_miso, fuel_mix_text, load_text, yesterday_text, freezer
+) -> None:
+    """Install day: one day stored, no index. Just after midnight EST the new day arrives and the index appears."""
+    freezer.move_to(FIXTURE_NOW_ISO)
+    entry = await _setup(hass, enable=("binary_sensor.miso_low_carbon_energy_now",))
+    coordinator = entry.runtime_data
+    assert hass.states.get("sensor.miso_carbon_intensity_index").state == STATE_UNAVAILABLE
+    assert hass.states.get("binary_sensor.miso_low_carbon_energy_now").state == "unknown"
+
+    # FuelMix/Yesterday rolls over to Oct 31 at midnight EST (same shape, new date).
+    mock_miso.clear_requests()
+    mock_miso.get(FUEL_MIX_URL, text=fuel_mix_text)
+    mock_miso.get(LOAD_URL, text=load_text)
+    mock_miso.get(FUEL_MIX_YESTERDAY_URL, text=yesterday_text.replace("2026-10-30", "2026-10-31"))
+
+    freezer.move_to("2026-11-01 00:10:00-05:00")  # not rolled over yet: nothing asked
+    await coordinator.async_refresh()
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert _yesterday_fetches(mock_miso) == 0
+
+    freezer.move_to("2026-11-01 00:25:00-05:00")
+    await coordinator.async_refresh()
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert _yesterday_fetches(mock_miso) == 1
+    index = hass.states.get("sensor.miso_carbon_intensity_index")
+    assert int(index.state) == 51
+    assert index.attributes["window_days"] == 2
+    assert hass.states.get("binary_sensor.miso_low_carbon_energy_now").state == "off"
+
+
+async def test_retired_entities_removed(hass: HomeAssistant, mock_miso) -> None:
+    """The pre-release Hub price sensor is removed from the registry on setup."""
+    entry = MockConfigEntry(domain=DOMAIN, title="MISO", data={}, options={**DEFAULT_OPTIONS, "hub": "michigan"})
+    entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    old = registry.async_get_or_create(
+        "sensor", DOMAIN, f"{entry.entry_id}_hub_price", config_entry=entry, suggested_object_id="miso_hub_price"
+    )
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert registry.async_get(old.entity_id) is None
+    assert hass.states.get("sensor.miso_co2_intensity") is not None

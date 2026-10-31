@@ -7,27 +7,18 @@ from typing import Any
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult, OptionsFlowWithReload
 from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.selector import (
-    NumberSelector,
-    NumberSelectorConfig,
-    NumberSelectorMode,
-    SelectSelector,
-    SelectSelectorConfig,
-    SelectSelectorMode,
-)
+from homeassistant.helpers.selector import NumberSelector, NumberSelectorConfig, NumberSelectorMode
 import voluptuous as vol
 
 from .api import MisoClient, MisoError, parse_fuel_mix
 from .const import (
     CONF_COAL_FACTOR,
     CONF_GAS_FACTOR,
-    CONF_HUB,
     CONF_INDEX_DAYS,
     CONF_LOW_CARBON_INDEX,
     CONF_SCAN_INTERVAL,
     DEFAULT_OPTIONS,
     DOMAIN,
-    HUBS,
     LOGGER,
     MAX_EMISSION_FACTOR,
     MAX_INDEX_DAYS,
@@ -46,12 +37,7 @@ def _number(minimum: float, maximum: float, step: float, unit: str) -> NumberSel
     )
 
 
-HUB_SELECTOR = SelectSelector(
-    SelectSelectorConfig(options=list(HUBS), mode=SelectSelectorMode.DROPDOWN, translation_key=CONF_HUB)
-)
-
 OPTION_FIELDS = {
-    CONF_HUB: HUB_SELECTOR,
     CONF_SCAN_INTERVAL: _number(MIN_SCAN_INTERVAL, MAX_SCAN_INTERVAL, 1, "min"),
     CONF_COAL_FACTOR: _number(0, MAX_EMISSION_FACTOR, 1, "g/kWh"),
     CONF_GAS_FACTOR: _number(0, MAX_EMISSION_FACTOR, 1, "g/kWh"),
@@ -72,7 +58,7 @@ class MisoStatsConfigFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Pick the price hub, then check that MISO answers."""
+        """Confirm, then check that MISO answers."""
         errors: dict[str, str] = {}
         if user_input is not None:
             client = MisoClient(async_get_clientsession(self.hass))
@@ -82,15 +68,13 @@ class MisoStatsConfigFlow(ConfigFlow, domain=DOMAIN):
                 LOGGER.warning("MISO FuelMix check failed: %s", err)
                 errors["base"] = "cannot_connect"
             else:
-                options = {**DEFAULT_OPTIONS, CONF_HUB: user_input.get(CONF_HUB, DEFAULT_OPTIONS[CONF_HUB])}
-                return self.async_create_entry(title="MISO", data={}, options=options)
-        schema = vol.Schema({vol.Required(CONF_HUB, default=DEFAULT_OPTIONS[CONF_HUB]): HUB_SELECTOR})
-        return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
+                return self.async_create_entry(title="MISO", data={}, options=dict(DEFAULT_OPTIONS))
+        return self.async_show_form(step_id="user", data_schema=vol.Schema({}), errors=errors)
 
     @staticmethod
     @callback
     def async_get_options_flow(config_entry: MisoConfigEntry) -> MisoStatsOptionsFlow:
-        """Hub, polling interval, emission factors and carbon index settings."""
+        """Polling interval, emission factors and carbon index settings."""
         return MisoStatsOptionsFlow()
 
 

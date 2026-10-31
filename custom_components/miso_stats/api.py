@@ -7,7 +7,6 @@ documented and every value arrives as a string, so each field is read defensivel
   the carbon intensity index's history.
 - RealTimeTotalLoad: today's 5-minute demand, the hourly day-ahead cleared load and the
   medium-term load forecast (hour ending 1-24).
-- MarketPricing/GetExAnteLmp: the ex-ante real-time price at MISO's trading hubs.
 
 Times are Eastern Standard Time all year (MISO_TZ).
 """
@@ -30,7 +29,6 @@ from .const import (
     FUEL_MIX_YESTERDAY_URL,
     HISTORY_MIN_HOURS,
     INTENSITY_FUELS,
-    LMP_URL,
     LOAD_URL,
     MISO_TZ,
     REQUEST_TIMEOUT,
@@ -320,47 +318,6 @@ def parse_load(text: str) -> Load:
     return load
 
 
-# --- GetExAnteLmp ------------------------------------------------------------------------
-
-
-@dataclass(slots=True, frozen=True)
-class HubPrice:
-    """Ex-ante LMP at one hub, $/MWh."""
-
-    lmp: float
-    loss: float | None
-    congestion: float | None
-
-
-@dataclass(slots=True)
-class Prices:
-    """The latest ex-ante hub prices."""
-
-    raw: dict[str, Any]
-    updated: datetime | None
-    hubs: dict[str, HubPrice]
-
-
-def parse_lmp(text: str) -> Prices:
-    """Parse the GetExAnteLmp feed."""
-    raw = _json(text, "GetExAnteLmp")
-    data = raw.get("LMPData") if isinstance(raw, dict) else None
-    exante = data.get("ExAnteLMP") if isinstance(data, dict) else None
-    rows = exante.get("Hub") if isinstance(exante, dict) else None
-    if isinstance(rows, dict):
-        rows = [rows]
-    hubs: dict[str, HubPrice] = {}
-    for row in rows if isinstance(rows, list) else []:
-        if not isinstance(row, dict):
-            continue
-        name, lmp = str(row.get("name") or "").strip(), _number(row.get("LMP"))
-        if name and lmp is not None:
-            hubs[name] = HubPrice(lmp=lmp, loss=_number(row.get("loss")), congestion=_number(row.get("congestion")))
-    if not hubs:
-        raise MisoError("GetExAnteLmp did not contain any hub prices")
-    return Prices(raw=raw, updated=parse_ref_id(data.get("RefId")), hubs=hubs)
-
-
 # --- HTTP ----------------------------------------------------------------------------------
 
 
@@ -399,17 +356,15 @@ class MisoClient:
                 await asyncio.sleep(HISTORY_RETRY_SECONDS * (attempt + 1))
         return parse_fuel_mix_day(text)
 
-    async def fetch(self) -> tuple[str, str | MisoError, str | MisoError]:
-        """FuelMix, RealTimeTotalLoad and GetExAnteLmp in parallel.
+    async def fetch(self) -> tuple[str, str | MisoError]:
+        """FuelMix and RealTimeTotalLoad in parallel.
 
-        A FuelMix error raises; load and price errors are returned in their place.
+        A FuelMix error raises; a load error is returned in its place.
         """
-        results = await asyncio.gather(
-            self._get(FUEL_MIX_URL), self._get(LOAD_URL), self._get(LMP_URL), return_exceptions=True
-        )
-        fuel, load, lmp = (
+        results = await asyncio.gather(self._get(FUEL_MIX_URL), self._get(LOAD_URL), return_exceptions=True)
+        fuel, load = (
             r if not isinstance(r, BaseException) or isinstance(r, MisoError) else MisoError(str(r)) for r in results
         )
         if isinstance(fuel, MisoError):
             raise fuel
-        return fuel, load, lmp
+        return fuel, load

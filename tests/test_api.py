@@ -13,7 +13,6 @@ from custom_components.miso_stats.api import (
     co2_rate,
     parse_fuel_mix,
     parse_fuel_mix_day,
-    parse_lmp,
     parse_load,
     parse_ref_id,
     parse_stamp,
@@ -162,36 +161,23 @@ def test_parse_load_errors() -> None:
         parse_load(json.dumps({"LoadInfo": {"RefId": "31-Oct-2026 - Interval 10:30 EST"}}))
 
 
-def test_parse_lmp(lmp_text: str) -> None:
-    prices = parse_lmp(lmp_text)
-    assert prices.updated == datetime(2026, 10, 31, 10, 35, tzinfo=MISO_TZ)
-    assert len(prices.hubs) == 9
-    michigan = prices.hubs["MICHIGAN.HUB"]
-    assert (michigan.lmp, michigan.loss, michigan.congestion) == (27.61, 1.22, 0.11)
-    with pytest.raises(MisoError):
-        parse_lmp(json.dumps({"LMPData": {"ExAnteLMP": {"Hub": []}}}))
-
-
-def test_derive_from_fixtures(fuel_mix_text: str, load_text: str, lmp_text: str) -> None:
-    data = derive(parse_fuel_mix(fuel_mix_text), parse_load(load_text), parse_lmp(lmp_text), {})
+def test_derive_from_fixtures(fuel_mix_text: str, load_text: str) -> None:
+    data = derive(parse_fuel_mix(fuel_mix_text), parse_load(load_text), {})
     assert data.co2_intensity == 446.0
     assert data.co2_emissions == 29894
     assert data.renewables == 20.2
     assert data.carbon_free == 32.6
-    assert data.hub == "INDIANA.HUB"
-    assert data.hub_price.lmp == 27.29
     assert data.co2_index is None  # no history range passed
     assert data.low_carbon_now is None
 
 
 def test_derive_index_and_threshold(fuel_mix_text: str) -> None:
     window = IndexRange(min_g=376.9, min_at=SLOT, max_g=511.8, max_at=SLOT, days=2)
-    data = derive(parse_fuel_mix(fuel_mix_text), None, None, {"hub": "michigan"}, window)
+    # Options left over from pre-release builds (the old "hub") are ignored.
+    data = derive(parse_fuel_mix(fuel_mix_text), None, {"hub": "michigan"}, window)
     assert data.co2_index == 51  # 446.0 on a 376.9-511.8 scale
     assert data.low_carbon_now is False  # 51 > 25
-    assert data.hub == "MICHIGAN.HUB"
-    assert data.hub_price is None  # price feed unavailable
-    looser = derive(parse_fuel_mix(fuel_mix_text), None, None, {"low_carbon_index_threshold": 60}, window)
+    looser = derive(parse_fuel_mix(fuel_mix_text), None, {"low_carbon_index_threshold": 60}, window)
     assert looser.low_carbon_now is True
 
 

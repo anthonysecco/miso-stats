@@ -15,15 +15,12 @@ from homeassistant.util import dt as dt_util
 
 from .api import (
     FuelMix,
-    HubPrice,
     Load,
     MisoClient,
     MisoError,
-    Prices,
     co2_intensity,
     co2_rate,
     parse_fuel_mix,
-    parse_lmp,
     parse_load,
     share,
 )
@@ -31,14 +28,12 @@ from .const import (
     CARBON_FREE_FUELS,
     CONF_COAL_FACTOR,
     CONF_GAS_FACTOR,
-    CONF_HUB,
     CONF_INDEX_DAYS,
     CONF_LOW_CARBON_INDEX,
     CONF_SCAN_INTERVAL,
     DEFAULT_OPTIONS,
     DOMAIN,
     HISTORY_RETRY_HOURS,
-    HUBS,
     LOGGER,
     MAX_INDEX_DAYS,
     MIN_INDEX_DAYS,
@@ -57,8 +52,6 @@ class MisoData:
 
     fuel_mix: FuelMix
     load: Load | None
-    prices: Prices | None
-    hub: str  # MISO's node name, e.g. "INDIANA.HUB"
     coal_factor: float
     gas_factor: float
     co2_intensity: float | None
@@ -69,11 +62,6 @@ class MisoData:
     co2_index: int | None = None
     index_range: IndexRange | None = None
     errors: dict[str, str] = field(default_factory=dict)
-
-    @property
-    def hub_price(self) -> HubPrice | None:
-        """Price at the configured hub."""
-        return self.prices.hubs.get(self.hub) if self.prices else None
 
 
 def options_with_defaults(options: dict[str, Any]) -> dict[str, Any]:
@@ -88,7 +76,6 @@ def _round(value: float | None, digits: int = 1) -> float | None:
 def derive(
     fuel_mix: FuelMix,
     load: Load | None,
-    prices: Prices | None,
     options: dict[str, Any],
     index_range: IndexRange | None = None,
 ) -> MisoData:
@@ -102,8 +89,6 @@ def derive(
     return MisoData(
         fuel_mix=fuel_mix,
         load=load,
-        prices=prices,
-        hub=HUBS.get(opts[CONF_HUB], HUBS[DEFAULT_OPTIONS[CONF_HUB]]),
         coal_factor=coal_g,
         gas_factor=gas_g,
         co2_intensity=intensity,
@@ -116,15 +101,15 @@ def derive(
     )
 
 
-def _fresh[T: (Load, Prices)](previous: T | None, now: datetime) -> T | None:
-    """Keep a feed's last good copy while it's recent; drop it once stale."""
-    if previous is None or previous.updated is None or now - previous.updated > STALE_AFTER:
+def _fresh(previous: Load | None, now: datetime) -> Load | None:
+    """Keep the last good demand reading while it's recent; drop it once stale."""
+    if previous is None or now - previous.updated > STALE_AFTER:
         return None
     return previous
 
 
 class MisoCoordinator(DataUpdateCoordinator[MisoData]):
-    """Fetches FuelMix, RealTimeTotalLoad and the hub prices every poll; yesterday's mix once a day."""
+    """Fetches FuelMix and RealTimeTotalLoad every poll; yesterday's mix once a day."""
 
     config_entry: MisoConfigEntry
 
@@ -138,9 +123,8 @@ class MisoCoordinator(DataUpdateCoordinator[MisoData]):
             update_interval=scan_interval(entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_OPTIONS[CONF_SCAN_INTERVAL])),
         )
         self.client = MisoClient(async_get_clientsession(hass))
-        self.raw: dict[str, str | None] = {"fuel_mix": None, "load": None, "lmp": None}
+        self.raw: dict[str, str | None] = {"fuel_mix": None, "load": None}
         self._load: Load | None = None
-        self._prices: Prices | None = None
         self.history = MixHistory(hass)
         self._history_task: asyncio.Task[None] | None = None
         self._history_tried: datetime | None = None
@@ -193,7 +177,6 @@ class MisoCoordinator(DataUpdateCoordinator[MisoData]):
             data = derive(
                 self.data.fuel_mix,
                 self.data.load,
-                self.data.prices,
                 dict(self.config_entry.options),
                 self._window(dt_util.now()),
             )
@@ -204,7 +187,7 @@ class MisoCoordinator(DataUpdateCoordinator[MisoData]):
     async def _async_update_data(self) -> MisoData:
         now = dt_util.now()
         try:
-            fuel_text, load_text, lmp_text = await self.client.fetch()
+            fuel_text, load_text = await self.client.fetch()
             fuel_mix = parse_fuel_mix(fuel_text)
         except MisoError as err:
             raise UpdateFailed(str(err)) from err
@@ -218,19 +201,10 @@ class MisoCoordinator(DataUpdateCoordinator[MisoData]):
             self._load = parse_load(load_text)
         except MisoError as err:
             errors["load"] = str(err)
+            LOGGER.debug("MISO load feed failed this poll: %s", err)
             self._load = _fresh(self._load, now)
-        try:
-            if isinstance(lmp_text, MisoError):
-                raise lmp_text
-            self.raw["lmp"] = lmp_text
-            self._prices = parse_lmp(lmp_text)
-        except MisoError as err:
-            errors["lmp"] = str(err)
-            self._prices = _fresh(self._prices, now)
-        if errors:
-            LOGGER.debug("Some MISO feeds failed this poll: %s", errors)
 
-        data = derive(fuel_mix, self._load, self._prices, dict(self.config_entry.options), self._window(now))
+        data = derive(fuel_mix, self._load, dict(self.config_entry.options), self._window(now))
         data.errors = errors
         self._maybe_fetch_history(now)
         return data
