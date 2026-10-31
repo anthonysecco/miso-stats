@@ -253,7 +253,6 @@ async def test_index_turns_on_after_first_midnight(
     """Install day: one day stored, no index. Just after midnight EST the new day arrives and the index appears."""
     freezer.move_to(FIXTURE_NOW_ISO)
     entry = await _setup(hass, enable=("binary_sensor.miso_low_carbon_energy_now",))
-    coordinator = entry.runtime_data
     assert hass.states.get("sensor.miso_carbon_intensity_index").state == STATE_UNAVAILABLE
     assert hass.states.get("binary_sensor.miso_low_carbon_energy_now").state == "unknown"
 
@@ -263,13 +262,16 @@ async def test_index_turns_on_after_first_midnight(
     mock_miso.get(LOAD_URL, text=load_text)
     mock_miso.get(FUEL_MIX_YESTERDAY_URL, text=yesterday_text.replace("2026-10-30", "2026-10-31"))
 
+    # Enabling the binary sensor also schedules a delayed reload, which can swap in a new
+    # coordinator when the clock jumps; always poll the entry's current one.
     freezer.move_to("2026-11-01 00:10:00-05:00")  # not rolled over yet: nothing asked
-    await coordinator.async_refresh()
+    await hass.async_block_till_done(wait_background_tasks=True)
+    await entry.runtime_data.async_refresh()
     await hass.async_block_till_done(wait_background_tasks=True)
     assert _yesterday_fetches(mock_miso) == 0
 
     freezer.move_to("2026-11-01 00:25:00-05:00")
-    await coordinator.async_refresh()
+    await entry.runtime_data.async_refresh()
     await hass.async_block_till_done(wait_background_tasks=True)
     assert _yesterday_fetches(mock_miso) == 1
     index = hass.states.get("sensor.miso_carbon_intensity_index")
