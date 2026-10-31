@@ -67,7 +67,7 @@ Copy `custom_components/miso_stats` from the [latest release](https://github.com
 
 Entity IDs below assume the default device name **MISO**. Power values are in MW for the **whole MISO footprint** (15 states and Manitoba), not your utility; see [Regional detail](#regional-detail).
 
-A fresh install enables 6 entities: CO2 intensity, the Carbon Intensity Index, the renewable and carbon-free shares, demand and when the data was last updated. Everything marked *Off by default* is created disabled. To turn one on, open **Settings → Devices & services → MISO Stats → entities**, select it and choose **Enable**. Disabled entities record no history, which keeps the database small.
+A fresh install enables 5 entities: CO2 intensity, the Carbon Intensity Index, the renewable and carbon-free shares and when the data was last updated. Everything marked *Off by default* is created disabled. To turn one on, open **Settings → Devices & services → MISO Stats → entities**, select it and choose **Enable**. Disabled entities record no history, which keeps the database small.
 
 ### Emissions and shares
 | Entity | Unit | Notes |
@@ -82,7 +82,7 @@ A fresh install enables 6 entities: CO2 intensity, the Carbon Intensity Index, t
 ### Demand
 | Entity | Unit | Notes |
 |---|---|---|
-| `sensor.miso_demand` | MW | Latest 5-minute total load (`as_of` attribute). |
+| `sensor.miso_demand` | MW | Latest 5-minute total load (`as_of` attribute). *Off by default.* |
 | `sensor.miso_today_s_peak_demand` | MW | Highest 5-minute load so far today, EST day (`peak_time` attribute). *Off by default.* |
 | `sensor.miso_forecast_peak_demand_today` | MW | Highest hour of MISO's medium-term load forecast for today (`peak_hour_start` attribute). *Off by default.* |
 | `sensor.miso_load_forecast` | MW | MISO's load forecast for the current hour. The `forecast` attribute holds today's 24 hours with `forecast_mw`, `day_ahead_mw` (day-ahead cleared load) and `actual_mw` (hourly average of the 5-minute load) for charts; it isn't saved to the database. *Off by default.* |

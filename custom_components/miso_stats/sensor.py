@@ -249,7 +249,7 @@ SENSORS: tuple[MisoSensorDescription, ...] = (
         entity_registry_enabled_default=False,
     ),
     # --- demand (RealTimeTotalLoad) ---
-    _mw("demand", _demand, attrs_fn=_demand_attrs, available_fn=_has_load),
+    _mw("demand", _demand, attrs_fn=_demand_attrs, available_fn=_has_load, entity_registry_enabled_default=False),
     _mw(
         "todays_peak_demand",
         _peak,

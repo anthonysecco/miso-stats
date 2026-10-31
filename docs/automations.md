@@ -119,7 +119,7 @@ mode: single
 
 ## Dashboard cards
 
-Grid summary with built-in cards:
+Grid summary with built-in cards (enable `sensor.miso_demand` first; it's off by default):
 ```yaml
 type: vertical-stack
 cards:

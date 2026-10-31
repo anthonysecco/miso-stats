@@ -85,7 +85,7 @@ async def test_key_makes_carbon_numbers_local(hass: HomeAssistant, mock_singular
 
     # Same 20 entities as without a key; demand still comes from MISO.
     assert len(er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)) == 20
-    assert float(hass.states.get("sensor.miso_demand").state) == 72619
+    assert entry.runtime_data.data.load.demand[1] == 72619
 
 
 async def test_local_index_backfilled(hass: HomeAssistant, mock_miso, freezer) -> None:
@@ -136,7 +136,7 @@ async def test_rejected_key_raises_repair(hass: HomeAssistant, mock_miso, freeze
     entry = await _setup(hass, **SINGULARITY_OPTIONS)
     assert entry.state is ConfigEntryState.LOADED
     assert hass.states.get("sensor.miso_co2_intensity").state == STATE_UNAVAILABLE
-    assert float(hass.states.get("sensor.miso_demand").state) == 72619
+    assert entry.runtime_data.data.load.demand[1] == 72619
     assert ir.async_get(hass).async_get_issue(DOMAIN, "invalid_api_key") is not None
     assert "HTTP 401" in entry.runtime_data.data.errors["singularity"]
 
